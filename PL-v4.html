@@ -15,20 +15,20 @@
     const canvas = document.getElementById('particleCanvas');
     const ctx = canvas.getContext('2d');
 
-    // ©w¸qÃC¦â
+    // å®šç¾©é¡è‰²
     const COLORS = ['#FFFFFF','#F8F8F8','#DDDDDD','#B2B2B2','#808080','#5F5F5F'];
 
-    // ª«²z°Ñ¼Æ
-    const PARTICLE_COUNT = 1500;    // ²É¤l¼Æ¶q
-    const MAX_FORCE = 0.2;         // ³Ì¤j¬Û¤¬§@¥Î¤O
-    const FRICTION = 0.78;          // ¼¯À¿«Y¼Æ¡A´î½w³t«×Á×§K¹L§Ö
-    const CHANGE_INTERVAL = 30000;  // ¬Û¤¬§@¥Î¤OÅÜ§ó¶¡¹j¡]²@¬í¡^
-    const NEARBY_RADIUS = 50;       // ¬Û¤¬§@¥Îªº³Ì»·¶ZÂ÷
+    // ç‰©ç†åƒæ•¸
+    const PARTICLE_COUNT = 5000;    // ç²’å­æ•¸é‡
+    const MAX_FORCE = 0.2;         // æœ€å¤§ç›¸äº’ä½œç”¨åŠ›
+    const FRICTION = 0.78;          // æ‘©æ“¦ä¿‚æ•¸ï¼Œæ¸›ç·©é€Ÿåº¦é¿å…éå¿«
+    const CHANGE_INTERVAL = 30000;  // ç›¸äº’ä½œç”¨åŠ›è®Šæ›´é–“éš”ï¼ˆæ¯«ç§’ï¼‰
+    const NEARBY_RADIUS = 50;       // ç›¸äº’ä½œç”¨çš„æœ€é è·é›¢
 
     let lastChangeTime = Date.now();
     let isFullScreen = false;
 
-    // ÀH¾÷¥Í¦¨¬Û¤¬§@¥Î¤O¯x°}
+    // éš¨æ©Ÿç”Ÿæˆç›¸äº’ä½œç”¨åŠ›çŸ©é™£
     function generateInteractionMatrix() {
       const TYPES = COLORS.length;
       let matrix = [];
@@ -43,7 +43,7 @@
 
     let INTERACTION_MATRIX = generateInteractionMatrix();
 
-    // Helper¡G±N HEX ¦â½XÂà´«¦¨ RGB
+    // Helperï¼šå°‡ HEX è‰²ç¢¼è½‰æ›æˆ RGB
     function hexToRgb(hex) {
       hex = hex.replace(/^#/, '');
       let bigint = parseInt(hex, 16);
@@ -62,14 +62,14 @@
         this.type = Math.floor(Math.random() * COLORS.length);
         this.color = COLORS[this.type];
         this.radius = 1;
-        // ·s¼W¸s»Eª¬ºA¼Ğ°O
+        // æ–°å¢ç¾¤èšç‹€æ…‹æ¨™è¨˜
         this.clustered = false;
       }
 
       update(particles) {
         let fx = 0, fy = 0;
 
-        // ­pºâ¬Û¤¬§@¥Î¤O¡A¥u¹ïªşªñªº²É¤l¶i¦æ­pºâ
+        // è¨ˆç®—ç›¸äº’ä½œç”¨åŠ›ï¼Œåªå°é™„è¿‘çš„ç²’å­é€²è¡Œè¨ˆç®—
         for (let other of particles) {
           if (other === this) continue;
           const dx = other.x - this.x;
@@ -79,22 +79,22 @@
           if (dist < NEARBY_RADIUS) {
             let force = INTERACTION_MATRIX[this.type][other.type] / (dist * 0.1);
 
-            // Lennard-Jones «¬¶Õ¯à¡Gªñ¶ZÂ÷±Æ¥¸¡A¸û»·¶ZÂ÷§l¤Ş
-            if (dist < 20) force *= -2;   // ±Æ¥¸
-            else if (dist < 50) force *= 2; // §l¤Ş
+            // Lennard-Jones å‹å‹¢èƒ½ï¼šè¿‘è·é›¢æ’æ–¥ï¼Œè¼ƒé è·é›¢å¸å¼•
+            if (dist < 20) force *= -2;   // æ’æ–¥
+            else if (dist < 50) force *= 2; // å¸å¼•
 
             fx += force * (dx / dist);
             fy += force * (dy / dist);
           }
         }
 
-        // §ó·s³t«×»P¦ì¸m
+        // æ›´æ–°é€Ÿåº¦èˆ‡ä½ç½®
         this.vx = (this.vx + fx) * FRICTION;
         this.vy = (this.vy + fy) * FRICTION;
         this.x += this.vx;
         this.y += this.vy;
 
-        // µLÃä¬É¼Ò¦¡¡GÅı²É¤l¬ï¹LÃä¬É¨Ã±q¥t¤@Ãä­«·s¥X²{
+        // ç„¡é‚Šç•Œæ¨¡å¼ï¼šè®“ç²’å­ç©¿éé‚Šç•Œä¸¦å¾å¦ä¸€é‚Šé‡æ–°å‡ºç¾
         if (this.x < -this.radius) this.x = canvas.width + this.radius;
         if (this.x > canvas.width + this.radius) this.x = -this.radius;
         if (this.y < -this.radius) this.y = canvas.height + this.radius;
@@ -102,19 +102,19 @@
       }
 
       draw() {
-        // ­Y³B©ó¸s»Eª¬ºA¡A¥ıµe¥X²H¥ú®ÄªG¡]½wºC°{Ã{¡^
+        // è‹¥è™•æ–¼ç¾¤èšç‹€æ…‹ï¼Œå…ˆç•«å‡ºæ·¡å…‰æ•ˆæœï¼ˆç·©æ…¢é–ƒçˆï¼‰
         if (this.clustered) {
-          // ¨Ï¥Î 2000 ²@¬íªº¶g´Á²£¥Í½wºC°{Ã{ªº®ÄªG
+          // ä½¿ç”¨ 2000 æ¯«ç§’çš„é€±æœŸç”¢ç”Ÿç·©æ…¢é–ƒçˆçš„æ•ˆæœ
           const blink = 0.5 + 0.5 * Math.sin(2 * Math.PI * Date.now() / 2000);
           const rgb = hexToRgb(this.color);
-          const alpha = 0.3 + 0.2 * blink; // ½Õ¾ã°{Ã{ªº³z©ú«×
+          const alpha = 0.3 + 0.2 * blink; // èª¿æ•´é–ƒçˆçš„é€æ˜åº¦
           ctx.beginPath();
-          // µe¤@­Ó¤ñ²É¤l¥»¨­¤j¤@¨Çªº¶ê¡A§@¬°¥~µo¥ú®ÄªG
+          // ç•«ä¸€å€‹æ¯”ç²’å­æœ¬èº«å¤§ä¸€äº›çš„åœ“ï¼Œä½œç‚ºå¤–ç™¼å…‰æ•ˆæœ
           ctx.arc(this.x, this.y, this.radius * 2, 0, Math.PI * 2);
           ctx.fillStyle = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${alpha})`;
           ctx.fill();
         }
-        // µe¥X²É¤l¥»¨­
+        // ç•«å‡ºç²’å­æœ¬èº«
         ctx.beginPath();
         ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
         ctx.fillStyle = this.color;
@@ -122,13 +122,13 @@
       }
     }
 
-    // ªì©l¤Æ²É¤l
+    // åˆå§‹åŒ–ç²’å­
     const particles = [];
     for (let i = 0; i < PARTICLE_COUNT; i++) {
       particles.push(new Particle());
     }
 
-    // ÀË¬d¨C­Ó²É¤l©P³ò¥b®|100¤ºªº¾F©~¼Æ¶q¡A¨Ã§ó·s¸s»Eª¬ºA
+    // æª¢æŸ¥æ¯å€‹ç²’å­å‘¨åœåŠå¾‘100å…§çš„é„°å±…æ•¸é‡ï¼Œä¸¦æ›´æ–°ç¾¤èšç‹€æ…‹
     function updateClusters() {
       for (let particle of particles) {
         let count = 0;
@@ -136,7 +136,7 @@
           if (other === particle) continue;
           const dx = other.x - particle.x;
           const dy = other.y - particle.y;
-          // ¨Ï¥Î¥­¤è¥H´î¤Ö Math.sqrt ªº¨Ï¥Î
+          // ä½¿ç”¨å¹³æ–¹ä»¥æ¸›å°‘ Math.sqrt çš„ä½¿ç”¨
           if (dx * dx + dy * dy < 100 * 100) {
             count++;
           }
@@ -148,16 +148,16 @@
     function animate() {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-      // ©T©w©P´Á§ó´«¤@¦¸¬Û¤¬§@¥Î¤O¯x°}
+      // å›ºå®šå‘¨æœŸæ›´æ›ä¸€æ¬¡ç›¸äº’ä½œç”¨åŠ›çŸ©é™£
       if (Date.now() - lastChangeTime > CHANGE_INTERVAL) {
         INTERACTION_MATRIX = generateInteractionMatrix();
         lastChangeTime = Date.now();
       }
 
-      // ¨C¤@´V§ó·s¸s»Eª¬ºA¡]¥i¦Ò¼{Àu¤Æ¥H´£¤É®Ä¯à¡^
+      // æ¯ä¸€å¹€æ›´æ–°ç¾¤èšç‹€æ…‹ï¼ˆå¯è€ƒæ…®å„ªåŒ–ä»¥æå‡æ•ˆèƒ½ï¼‰
       updateClusters();
 
-      // §ó·s²É¤l¦ì¸m¨ÃÃ¸»s
+      // æ›´æ–°ç²’å­ä½ç½®ä¸¦ç¹ªè£½
       for (let particle of particles) {
         particle.update(particles);
         particle.draw();
@@ -168,7 +168,7 @@
 
     animate();
 
-    // ºÊÅ¥Áä½L¨Æ¥ó¡G«ö T Áä¤Á´«¥ş¿Ã¹õ
+    // ç›£è½éµç›¤äº‹ä»¶ï¼šæŒ‰ T éµåˆ‡æ›å…¨è¢å¹•
     document.addEventListener('keydown', (event) => {
       if (event.key === 't' || event.key === 'T') {
         if (isFullScreen) {

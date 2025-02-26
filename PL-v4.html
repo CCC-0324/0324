@@ -168,6 +168,17 @@
 
     animate();
 
+    // 觸控點擊切換全螢幕
+    canvas.addEventListener('click', () => {
+      if (isFullScreen) {
+        document.exitFullscreen();
+        isFullScreen = false;
+      } else {
+        document.documentElement.requestFullscreen();
+        isFullScreen = true;
+      }
+    });
+
     // 監聽鍵盤事件：按 T 鍵切換全螢幕
     document.addEventListener('keydown', (event) => {
       if (event.key === 't' || event.key === 'T') {

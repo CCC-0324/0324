@@ -10,7 +10,7 @@
   </style>
 </head>
 <body>
-  <canvas id="particleCanvas" width="600" height="600"></canvas>
+  <canvas id="particleCanvas" width="1000" height="620"></canvas>
   <script>
     const canvas = document.getElementById('particleCanvas');
     const ctx = canvas.getContext('2d');
@@ -22,7 +22,7 @@
     const PARTICLE_COUNT = 2000;    // 粒子數量
     const MAX_FORCE = 0.2;         // 最大相互作用力
     const FRICTION = 0.78;          // 摩擦係數，減緩速度避免過快
-    const CHANGE_INTERVAL = 30000;  // 相互作用力變更間隔（毫秒）
+    const CHANGE_INTERVAL = 60000;  // 相互作用力變更間隔（毫秒）
     const NEARBY_RADIUS = 50;       // 相互作用的最遠距離
 
     let lastChangeTime = Date.now();

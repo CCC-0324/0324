@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
   <meta charset="UTF-8">
@@ -15,20 +15,22 @@
     const canvas = document.getElementById('particleCanvas');
     const ctx = canvas.getContext('2d');
 
-    // 定義顏色
     const COLORS = ['#FFFFFF','#EAEAEA','#F8F8F8','#C0C0C0','#DDDDDD','#B2B2B2','#808080','#4D4D4D','#5F5F5F','#292929','#111111','#080808'];
 
-    // 物理參數
-    const PARTICLE_COUNT = 4000;    // 粒子數量
-    const MAX_FORCE = 0.05;         // 最大相互作用力
-    const FRICTION = 0.58;          // 摩擦係數，減緩速度避免過快
-    const CHANGE_INTERVAL = 60000;  // 相互作用力變更間隔（毫秒）
-    const NEARBY_RADIUS = 100;       // 相互作用的最遠距離
+    const PARTICLE_COUNT = 2000;
+    const MAX_FORCE = 0.2;
+    const FRICTION = -0.58;
+    const CHANGE_INTERVAL = 60000;  // 每 60 秒變更一次
+    const TRANSITION_DURATION = 30000;  // 變更過渡時間 30 秒
+    const NEARBY_RADIUS = 100;
 
     let lastChangeTime = Date.now();
+    let transitionStartTime = Date.now();
+    let oldMatrix = generateInteractionMatrix();
+    let newMatrix = generateInteractionMatrix();
+    let INTERACTION_MATRIX = structuredClone(oldMatrix);
     let isFullScreen = false;
 
-    // 隨機生成相互作用力矩陣
     function generateInteractionMatrix() {
       const TYPES = COLORS.length;
       let matrix = [];
@@ -41,9 +43,29 @@
       return matrix;
     }
 
-    let INTERACTION_MATRIX = generateInteractionMatrix();
+    function easeInOutSine(t) {
+      return -(Math.cos(Math.PI * t) - 1) / 2;
+    }
 
-    // Helper：將 HEX 色碼轉換成 RGB
+    function updateInteractionMatrix() {
+      let elapsed = Date.now() - transitionStartTime;
+      let t = Math.min(elapsed / TRANSITION_DURATION, 1);
+      let smoothT = easeInOutSine(t);
+
+      for (let i = 0; i < oldMatrix.length; i++) {
+        for (let j = 0; j < oldMatrix[i].length; j++) {
+          INTERACTION_MATRIX[i][j] = oldMatrix[i][j] * (1 - smoothT) + newMatrix[i][j] * smoothT;
+        }
+      }
+
+      if (t >= 1 && Date.now() - lastChangeTime > CHANGE_INTERVAL) {
+        lastChangeTime = Date.now();
+        transitionStartTime = Date.now();
+        oldMatrix = structuredClone(newMatrix);
+        newMatrix = generateInteractionMatrix();
+      }
+    }
+
     function hexToRgb(hex) {
       hex = hex.replace(/^#/, '');
       let bigint = parseInt(hex, 16);
@@ -62,14 +84,12 @@
         this.type = Math.floor(Math.random() * COLORS.length);
         this.color = COLORS[this.type];
         this.radius = 1;
-        // 新增群聚狀態標記
         this.clustered = false;
       }
 
       update(particles) {
         let fx = 0, fy = 0;
 
-        // 計算相互作用力，只對附近的粒子進行計算
         for (let other of particles) {
           if (other === this) continue;
           const dx = other.x - this.x;
@@ -78,23 +98,19 @@
 
           if (dist < NEARBY_RADIUS) {
             let force = INTERACTION_MATRIX[this.type][other.type] / (dist * 0.1);
-
-            // Lennard-Jones 型勢能：近距離排斥，較遠距離吸引
-            if (dist < 20) force *= -2;   // 排斥
-            else if (dist < 50) force *= 30; // 吸引
+            if (dist < 20) force *= -2;
+            else if (dist < 50) force *= 20;
 
             fx += force * (dx / dist);
             fy += force * (dy / dist);
           }
         }
 
-        // 更新速度與位置
         this.vx = (this.vx + fx) * FRICTION;
         this.vy = (this.vy + fy) * FRICTION;
         this.x += this.vx;
         this.y += this.vy;
 
-        // 無邊界模式：讓粒子穿過邊界並從另一邊重新出現
         if (this.x < -this.radius) this.x = canvas.width + this.radius;
         if (this.x > canvas.width + this.radius) this.x = -this.radius;
         if (this.y < -this.radius) this.y = canvas.height + this.radius;
@@ -102,19 +118,16 @@
       }
 
       draw() {
-        // 若處於群聚狀態，先畫出淡光效果（緩慢閃爍）
         if (this.clustered) {
-          // 使用 2000 毫秒的週期產生緩慢閃爍的效果
           const blink = 0.5 + 0.5 * Math.sin(2 * Math.PI * Date.now() / 2000);
           const rgb = hexToRgb(this.color);
-          const alpha = 0.3 + 0.2 * blink; // 調整閃爍的透明度
+          const alpha = 0.3 + 0.2 * blink;
           ctx.beginPath();
-          // 畫一個比粒子本身大一些的圓，作為外發光效果
-          ctx.arc(this.x, this.y, this.radius * 2, 0, Math.PI * 2);
+          ctx.arc(this.x, this.y, this.radius * 1.5, 0, Math.PI * 2);
           ctx.fillStyle = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${alpha})`;
           ctx.fill();
         }
-        // 畫出粒子本身
+
         ctx.beginPath();
         ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
         ctx.fillStyle = this.color;
@@ -122,13 +135,11 @@
       }
     }
 
-    // 初始化粒子
     const particles = [];
     for (let i = 0; i < PARTICLE_COUNT; i++) {
       particles.push(new Particle());
     }
 
-    // 檢查每個粒子周圍半徑100內的鄰居數量，並更新群聚狀態
     function updateClusters() {
       for (let particle of particles) {
         let count = 0;
@@ -136,28 +147,20 @@
           if (other === particle) continue;
           const dx = other.x - particle.x;
           const dy = other.y - particle.y;
-          // 使用平方以減少 Math.sqrt 的使用
           if (dx * dx + dy * dy < 100 * 100) {
             count++;
           }
         }
-        particle.clustered = count >= 200;
+        particle.clustered = count >= 120;
       }
     }
 
     function animate() {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-      // 固定周期更換一次相互作用力矩陣
-      if (Date.now() - lastChangeTime > CHANGE_INTERVAL) {
-        INTERACTION_MATRIX = generateInteractionMatrix();
-        lastChangeTime = Date.now();
-      }
-
-      // 每一幀更新群聚狀態（可考慮優化以提升效能）
+      updateInteractionMatrix();
       updateClusters();
 
-      // 更新粒子位置並繪製
       for (let particle of particles) {
         particle.update(particles);
         particle.draw();
@@ -168,7 +171,6 @@
 
     animate();
 
-    // 觸控點擊切換全螢幕
     canvas.addEventListener('click', () => {
       if (isFullScreen) {
         document.exitFullscreen();
@@ -179,7 +181,6 @@
       }
     });
 
-    // 監聽鍵盤事件：按 T 鍵切換全螢幕
     document.addEventListener('keydown', (event) => {
       if (event.key === 't' || event.key === 'T') {
         if (isFullScreen) {

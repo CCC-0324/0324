@@ -1,11 +1,11 @@
 <!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
-  <meta charset="UTF-8"> <!-- ³]©w¦r²Å½s½X¬°UTF-8 -->
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"> <!-- ³]©wµøµ¡¤j¤p -->
-  <title>Particle Life</title> <!-- ºô­¶¼ĞÃD -->
+  <meta charset="UTF-8"> <!-- è¨­å®šå­—ç¬¦ç·¨ç¢¼ç‚ºUTF-8 -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"> <!-- è¨­å®šè¦–çª—å¤§å° -->
+  <title>Particle Life</title> <!-- ç¶²é æ¨™é¡Œ -->
   <style>
-    /* ³]©w­¶­±¼Ë¦¡¡A½T«Oµe¥¬¸m¤¤¨Ã¨Ï¥Î¥ş¿Ã¹õ°ª«× */
+    /* è¨­å®šé é¢æ¨£å¼ï¼Œç¢ºä¿ç•«å¸ƒç½®ä¸­ä¸¦ä½¿ç”¨å…¨è¢å¹•é«˜åº¦ */
     body { 
       margin: 0;
       display: flex;
@@ -15,38 +15,38 @@
       background-color: black;
     }
     canvas { 
-      border: none; /* ²¾°£µe¥¬Ãä®Ø */
+      border: none; /* ç§»é™¤ç•«å¸ƒé‚Šæ¡† */
     }
   </style>
 </head>
 <body>
-  <!-- ³]©wµe¥¬¤Ø¤o»PID -->
+  <!-- è¨­å®šç•«å¸ƒå°ºå¯¸èˆ‡ID -->
   <canvas id="particleCanvas" width="1000" height="620"></canvas>
   <script>
-    // ¨ú±oµe¥¬¤¸¯À»P2DÃ¸¹Ï¤W¤U¤å
+    // å–å¾—ç•«å¸ƒå…ƒç´ èˆ‡2Dç¹ªåœ–ä¸Šä¸‹æ–‡
     const canvas = document.getElementById('particleCanvas');
     const ctx = canvas.getContext('2d');
 
-    // ©w¸q©Ò¦³²É¤lªºÃC¦â
+    // å®šç¾©æ‰€æœ‰ç²’å­çš„é¡è‰²
     const COLORS = ['#FFFFFF','#EAEAEA','#F8F8F8','#C0C0C0','#DDDDDD','#B2B2B2','#808080','#4D4D4D','#5F5F5F','#292929','#111111','#080808'];
-    const PARTICLE_COUNT = 2000;      // ²É¤lÁ`¼Æ
-    const MAX_FORCE = 0.2;            // ³Ì¤j§@¥Î¤O
-    const FRICTION = 0.68;            // ¼¯À¿«Y¼Æ
-    const CHANGE_INTERVAL = 60000;    // ¯x°}§ó·s¶¡¹j (²@¬í)
-    const TRANSITION_DURATION = 30000; // ¹L´ç®É¶¡ (²@¬í)
-    const NEARBY_RADIUS = 100;        // ²É¤l¶¡¤¬°Ê¶ZÂ÷
+    const PARTICLE_COUNT = 3000;      // ç²’å­ç¸½æ•¸
+    const MAX_FORCE = 0.2;            // æœ€å¤§ä½œç”¨åŠ›
+    const FRICTION = 0.68;            // æ‘©æ“¦ä¿‚æ•¸
+    const CHANGE_INTERVAL = 60000;    // çŸ©é™£æ›´æ–°é–“éš” (æ¯«ç§’)
+    const TRANSITION_DURATION = 30000; // éæ¸¡æ™‚é–“ (æ¯«ç§’)
+    const NEARBY_RADIUS = 100;        // ç²’å­é–“äº’å‹•è·é›¢
 
-    // °O¿ı¯x°}§ó·s»P¹L´ç¶}©l®É¶¡
+    // è¨˜éŒ„çŸ©é™£æ›´æ–°èˆ‡éæ¸¡é–‹å§‹æ™‚é–“
     let lastChangeTime = Date.now();
     let transitionStartTime = Date.now();
     let oldMatrix = generateInteractionMatrix();
     let newMatrix = generateInteractionMatrix();
-    let INTERACTION_MATRIX = structuredClone(oldMatrix); // ·í«e¤¬°Ê¯x°}
-    let isFullScreen = false; // ¥ş¿Ã¹õ¼Ğ°O
+    let INTERACTION_MATRIX = structuredClone(oldMatrix); // ç•¶å‰äº’å‹•çŸ©é™£
+    let isFullScreen = false; // å…¨è¢å¹•æ¨™è¨˜
 
     /**
-     * ¥Í¦¨ÀH¾÷¤¬°Ê¯x°}
-     * ¨C­ÓÃC¦â¥Nªí¤@ºØ²É¤lÃş«¬
+     * ç”Ÿæˆéš¨æ©Ÿäº’å‹•çŸ©é™£
+     * æ¯å€‹é¡è‰²ä»£è¡¨ä¸€ç¨®ç²’å­é¡å‹
      */
     function generateInteractionMatrix() {
       const TYPES = COLORS.length;
@@ -54,7 +54,7 @@
       for (let i = 0; i < TYPES; i++) {
         matrix[i] = [];
         for (let j = 0; j < TYPES; j++) {
-          // ²£¥Í -MAX_FORCE ¨ì MAX_FORCE ¤§¶¡ªºÀH¾÷­È
+          // ç”¢ç”Ÿ -MAX_FORCE åˆ° MAX_FORCE ä¹‹é–“çš„éš¨æ©Ÿå€¼
           matrix[i][j] = Math.random() * 2 * MAX_FORCE - MAX_FORCE;
         }
       }
@@ -62,30 +62,30 @@
     }
 
     /**
-     * ½w°Ê¨ç¼Æ¡AÅı¹L´ç§ó¥­·Æ
-     * @param {number} t - ¹L´ç¤ñ¨Ò (0~1)
-     * @returns {number} ½w°Ê«áªº­È
+     * ç·©å‹•å‡½æ•¸ï¼Œè®“éæ¸¡æ›´å¹³æ»‘
+     * @param {number} t - éæ¸¡æ¯”ä¾‹ (0~1)
+     * @returns {number} ç·©å‹•å¾Œçš„å€¼
      */
     function easeInOutSine(t) {
       return -(Math.cos(Math.PI * t) - 1) / 2;
     }
 
     /**
-     * §ó·s¤¬°Ê¯x°}¡AÅıÂÂ¯x°}¥­·Æ¹L´ç¨ì·s¯x°}
+     * æ›´æ–°äº’å‹•çŸ©é™£ï¼Œè®“èˆŠçŸ©é™£å¹³æ»‘éæ¸¡åˆ°æ–°çŸ©é™£
      */
     function updateInteractionMatrix() {
       let elapsed = Date.now() - transitionStartTime;
       let t = Math.min(elapsed / TRANSITION_DURATION, 1);
       let smoothT = easeInOutSine(t);
 
-      // ®Ú¾Ú¹L´ç¶i«×§ó·s¨C­Ó¯x°}¤¸¯À
+      // æ ¹æ“šéæ¸¡é€²åº¦æ›´æ–°æ¯å€‹çŸ©é™£å…ƒç´ 
       for (let i = 0; i < oldMatrix.length; i++) {
         for (let j = 0; j < oldMatrix[i].length; j++) {
           INTERACTION_MATRIX[i][j] = oldMatrix[i][j] * (1 - smoothT) + newMatrix[i][j] * smoothT;
         }
       }
 
-      // ¹L´ç§¹¦¨¥B¶W¹L«ü©w®É¶¡«á§ó·s¤¬°Ê¯x°}
+      // éæ¸¡å®Œæˆä¸”è¶…éæŒ‡å®šæ™‚é–“å¾Œæ›´æ–°äº’å‹•çŸ©é™£
       if (t >= 1 && Date.now() - lastChangeTime > CHANGE_INTERVAL) {
         lastChangeTime = Date.now();
         transitionStartTime = Date.now();
@@ -95,9 +95,9 @@
     }
 
     /**
-     * ±N¤Q¤»¶i¦ìÃC¦âÂà´«¬°RGBª«¥ó
-     * @param {string} hex - ¤Q¤»¶i¦ìÃC¦â½X
-     * @returns {object} ¥]§t r, g, b ªº¹ï¶H
+     * å°‡åå…­é€²ä½é¡è‰²è½‰æ›ç‚ºRGBç‰©ä»¶
+     * @param {string} hex - åå…­é€²ä½é¡è‰²ç¢¼
+     * @returns {object} åŒ…å« r, g, b çš„å°è±¡
      */
     function hexToRgb(hex) {
       hex = hex.replace(/^#/, '');
@@ -109,11 +109,11 @@
     }
 
     /**
-     * ²É¤lÃş§O©w¸q
+     * ç²’å­é¡åˆ¥å®šç¾©
      */
     class Particle {
       constructor() {
-        // ÀH¾÷¥Í¦¨ªì©l¦ì¸m»P³t«×
+        // éš¨æ©Ÿç”Ÿæˆåˆå§‹ä½ç½®èˆ‡é€Ÿåº¦
         this.x = Math.random() * canvas.width;
         this.y = Math.random() * canvas.height;
         this.vx = Math.random() * 2 - 1;
@@ -121,25 +121,25 @@
         this.type = Math.floor(Math.random() * COLORS.length);
         this.color = COLORS[this.type];
         this.radius = 1;
-        this.clustered = false; // »E¶°ª¬ºA¼Ğ°O
+        this.clustered = false; // èšé›†ç‹€æ…‹æ¨™è¨˜
       }
 
       /**
-       * §ó·s²É¤l¦ì¸m»P³t«×
-       * @param {Particle[]} particles - ©Ò¦³²É¤l°}¦C
+       * æ›´æ–°ç²’å­ä½ç½®èˆ‡é€Ÿåº¦
+       * @param {Particle[]} particles - æ‰€æœ‰ç²’å­é™£åˆ—
        */
       update(particles) {
         let fx = 0, fy = 0;
 
-        // ­pºâ»P¨ä¥L²É¤l¤§¶¡ªº§@¥Î¤O
+        // è¨ˆç®—èˆ‡å…¶ä»–ç²’å­ä¹‹é–“çš„ä½œç”¨åŠ›
         for (let other of particles) {
-          if (other === this) continue; // ±Æ°£¦Û¤v
+          if (other === this) continue; // æ’é™¤è‡ªå·±
           let dx = other.x - this.x;
           let dy = other.y - this.y;
           const dist = Math.sqrt(dx * dx + dy * dy);
 
           if (dist < NEARBY_RADIUS) {
-            // ®Ú¾Ú¶ZÂ÷­pºâ§@¥Î¤O
+            // æ ¹æ“šè·é›¢è¨ˆç®—ä½œç”¨åŠ›
             let force = INTERACTION_MATRIX[this.type][other.type] / (dist * 0.1);
             if (dist < 20) force *= -0.2;
             else if (dist < 50) force *= 2;
@@ -149,19 +149,19 @@
           }
         }
 
-        // §ó·s³t«×¨Ã¬I¥[¼¯À¿¤O
+        // æ›´æ–°é€Ÿåº¦ä¸¦æ–½åŠ æ‘©æ“¦åŠ›
         this.vx = (this.vx + fx) * FRICTION;
         this.vy = (this.vy + fy) * FRICTION;
 
-        // §ó·s²É¤l¦ì¸m
+        // æ›´æ–°ç²’å­ä½ç½®
         this.x += this.vx;
         this.y += this.vy;
 
-        // Ãä¬É¸I¼²ÀË´ú»P³B²z
-        // ·í²É¤l¸I¨ìÃä¬É®É¡A¨Ï¥Î¸û·Å©Mªº¤Ï¼u³B²z¡AÁ×§K²É¤l¦]¼¯À¿¤O¹L¤j¦Ó¥d¦í
+        // é‚Šç•Œç¢°æ’æª¢æ¸¬èˆ‡è™•ç†
+        // ç•¶ç²’å­ç¢°åˆ°é‚Šç•Œæ™‚ï¼Œä½¿ç”¨è¼ƒæº«å’Œçš„åå½ˆè™•ç†ï¼Œé¿å…ç²’å­å› æ‘©æ“¦åŠ›éå¤§è€Œå¡ä½
         if (this.x < 0) {
           this.x = 0;
-          // ­Y¤Ï¼u«á³t«×¹L¤p«hµ¹¤©³Ì¤p¥¿¦V³t«×¡A§_«h¨ú¥Ø«e¥¿¦V³t«×
+          // è‹¥åå½ˆå¾Œé€Ÿåº¦éå°å‰‡çµ¦äºˆæœ€å°æ­£å‘é€Ÿåº¦ï¼Œå¦å‰‡å–ç›®å‰æ­£å‘é€Ÿåº¦
           this.vx = Math.abs(this.vx) < 0.5 ? 0.5 : Math.abs(this.vx);
         }
         if (this.x > canvas.width) {
@@ -177,27 +177,27 @@
           this.vy = Math.abs(this.vy) < 0.5 ? -0.5 : -Math.abs(this.vy);
         }
 
-        // ÃB¥~ÀË¬d¬O§_¹L©ó±µªñÃä¬É¡A¨Ã¬I¥[¤º±À¤O±N²É¤l±À¦^µe¥¬¤º³¡
-        const edgeThreshold = 5; // Ãä¬ÉªùÂe¶ZÂ÷
+        // é¡å¤–æª¢æŸ¥æ˜¯å¦éæ–¼æ¥è¿‘é‚Šç•Œï¼Œä¸¦æ–½åŠ å…§æ¨åŠ›å°‡ç²’å­æ¨å›ç•«å¸ƒå…§éƒ¨
+        const edgeThreshold = 5; // é‚Šç•Œé–€æª»è·é›¢
         if (this.x < edgeThreshold) {
-          this.vx += 5; // ±À¦V¥kÃä
+          this.vx += 5; // æ¨å‘å³é‚Š
         }
         if (this.x > canvas.width - edgeThreshold) {
-          this.vx -= 5; // ±À¦V¥ªÃä
+          this.vx -= 5; // æ¨å‘å·¦é‚Š
         }
         if (this.y < edgeThreshold) {
-          this.vy += 5; // ±À¦V¤UÃä
+          this.vy += 5; // æ¨å‘ä¸‹é‚Š
         }
         if (this.y > canvas.height - edgeThreshold) {
-          this.vy -= 5; // ±À¦V¤WÃä
+          this.vy -= 5; // æ¨å‘ä¸Šé‚Š
         }
       }
 
       /**
-       * µe¥X²É¤l
+       * ç•«å‡ºç²’å­
        */
       draw() {
-        // ¦pªG²É¤l»E¶°«h¥[¤W°{Ã{®ÄªG
+        // å¦‚æœç²’å­èšé›†å‰‡åŠ ä¸Šé–ƒçˆæ•ˆæœ
         if (this.clustered) {
           const blink = 0.5 + 0.5 * Math.sin(2 * Math.PI * Date.now() / 2000);
           const rgb = hexToRgb(this.color);
@@ -207,7 +207,7 @@
           ctx.fillStyle = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${alpha})`;
           ctx.fill();
         }
-        // µe¥X°ò¥»²É¤l
+        // ç•«å‡ºåŸºæœ¬ç²’å­
         ctx.beginPath();
         ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
         ctx.fillStyle = this.color;
@@ -215,20 +215,20 @@
       }
     }
 
-    // ªì©l¤Æ²É¤l°}¦C
+    // åˆå§‹åŒ–ç²’å­é™£åˆ—
     const particles = [];
     for (let i = 0; i < PARTICLE_COUNT; i++) {
       particles.push(new Particle());
     }
 
     /**
-     * §ó·s²É¤lªº»E¶°ª¬ºA
-     * ­Y©P³ò²É¤l¼Æ¶q¶W¹L¤@©w¼Æ¶q«h¼Ğ°O¬°»E¶°
+     * æ›´æ–°ç²’å­çš„èšé›†ç‹€æ…‹
+     * è‹¥å‘¨åœç²’å­æ•¸é‡è¶…éä¸€å®šæ•¸é‡å‰‡æ¨™è¨˜ç‚ºèšé›†
      */
     function updateClusters() {
       for (let particle of particles) {
         let count = 0;
-        // ­pºâ©P³ò 100 ¹³¯À¤ºªº¾Fªñ²É¤l¼Æ¶q
+        // è¨ˆç®—å‘¨åœ 100 åƒç´ å…§çš„é„°è¿‘ç²’å­æ•¸é‡
         for (let other of particles) {
           if (other === particle) continue;
           let dx = other.x - particle.x;
@@ -242,30 +242,30 @@
     }
 
     /**
-     * °Êµe¥D´`Àô
+     * å‹•ç•«ä¸»å¾ªç’°
      */
     function animate() {
-      // ²M°£¾ã­Óµe¥¬
+      // æ¸…é™¤æ•´å€‹ç•«å¸ƒ
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-      // §ó·s¤¬°Ê¯x°}»P²É¤l»E¶°ª¬ºA
+      // æ›´æ–°äº’å‹•çŸ©é™£èˆ‡ç²’å­èšé›†ç‹€æ…‹
       updateInteractionMatrix();
       updateClusters();
 
-      // §ó·s¨Ãµe¥X©Ò¦³²É¤l
+      // æ›´æ–°ä¸¦ç•«å‡ºæ‰€æœ‰ç²’å­
       for (let particle of particles) {
         particle.update(particles);
         particle.draw();
       }
 
-      // ½Ğ¨D¤U¤@´V°Êµe
+      // è«‹æ±‚ä¸‹ä¸€å¹€å‹•ç•«
       requestAnimationFrame(animate);
     }
 
-    // ±Ò°Ê°Êµe´`Àô
+    // å•Ÿå‹•å‹•ç•«å¾ªç’°
     animate();
 
-    // ÂIÀ»µe¥¬¤Á´«¥ş¿Ã¹õ¼Ò¦¡
+    // é»æ“Šç•«å¸ƒåˆ‡æ›å…¨è¢å¹•æ¨¡å¼
     canvas.addEventListener('click', () => {
       if (isFullScreen) {
         document.exitFullscreen();

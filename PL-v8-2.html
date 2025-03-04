@@ -1,0 +1,209 @@
+﻿<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Particle Life</title>
+  <style>
+    body { 
+      margin: 0; 
+      display: flex; 
+      justify-content: center; 
+      align-items: center; 
+      height: 100vh; 
+      background-color: black; 
+    }
+    canvas { border: none; }
+  </style>
+</head>
+<body>
+  <canvas id="particleCanvas" width="1000" height="620"></canvas>
+  <script>
+    // 取得畫布與繪圖上下文
+    const canvas = document.getElementById('particleCanvas');
+    const ctx = canvas.getContext('2d');
+
+    // 粒子類型對應的顏色
+    const COLORS = ['#FFFFFF','#EAEAEA','#F8F8F8','#C0C0C0','#DDDDDD','#B2B2B2','#808080','#4D4D4D','#5F5F5F','#292929','#111111','#080808'];
+
+    // 參數設定
+    const PARTICLE_COUNT = 10000;  // 優化後可以支援的粒子數量
+    const GRID_SIZE = 50;          // 網格大小，用於加速鄰近搜尋
+    const MAX_FORCE = 0.2;         // 最大吸引/排斥力
+    const FRICTION = -0.58;        // 摩擦係數
+    const CHANGE_INTERVAL = 60000; // 變更互動矩陣的時間間隔（毫秒）
+    const TRANSITION_DURATION = 30000; // 平滑過渡時間（毫秒）
+    const NEARBY_RADIUS = 50;     // 粒子影響範圍
+    const NEARBY_RADIUS_SQ = NEARBY_RADIUS * NEARBY_RADIUS; // 預先計算平方值，減少開根號運算
+
+    // 記錄時間戳
+    let lastChangeTime = Date.now();
+    let transitionStartTime = Date.now();
+
+    // 生成初始的互動矩陣
+    let oldMatrix = generateInteractionMatrix();
+    let newMatrix = generateInteractionMatrix();
+    let INTERACTION_MATRIX = structuredClone(oldMatrix);
+    let isFullScreen = false;
+
+    // 生成粒子間的交互矩陣，每種粒子對應的吸引或排斥力
+    function generateInteractionMatrix() {
+      const TYPES = COLORS.length;
+      let matrix = [];
+      for (let i = 0; i < TYPES; i++) {
+        matrix[i] = [];
+        for (let j = 0; j < TYPES; j++) {
+          matrix[i][j] = Math.random() * 2 * MAX_FORCE - MAX_FORCE; // 隨機在 -MAX_FORCE 到 MAX_FORCE 之間
+        }
+      }
+      return matrix;
+    }
+
+    // 平滑過渡函數（使用正弦曲線）
+    function easeInOutSine(t) {
+      return -(Math.cos(Math.PI * t) - 1) / 2;
+    }
+
+    // 更新互動矩陣，確保矩陣的過渡平滑
+    function updateInteractionMatrix() {
+      let elapsed = Date.now() - transitionStartTime;
+      let t = Math.min(elapsed / TRANSITION_DURATION, 1);
+      let smoothT = easeInOutSine(t);
+
+      // 平滑插值更新矩陣
+      for (let i = 0; i < oldMatrix.length; i++) {
+        for (let j = 0; j < oldMatrix[i].length; j++) {
+          INTERACTION_MATRIX[i][j] = oldMatrix[i][j] * (1 - smoothT) + newMatrix[i][j] * smoothT;
+        }
+      }
+
+      // 過渡完成後，產生新的矩陣
+      if (t >= 1 && Date.now() - lastChangeTime > CHANGE_INTERVAL) {
+        lastChangeTime = Date.now();
+        transitionStartTime = Date.now();
+        oldMatrix = structuredClone(newMatrix);
+        newMatrix = generateInteractionMatrix();
+      }
+    }
+
+    // 定義粒子類
+    class Particle {
+      constructor() {
+        this.x = Math.random() * canvas.width;
+        this.y = Math.random() * canvas.height;
+        this.vx = Math.random() * 2 - 1; // 初始速度隨機
+        this.vy = Math.random() * 2 - 1;
+        this.type = Math.floor(Math.random() * COLORS.length); // 隨機選擇粒子類型
+        this.color = COLORS[this.type];
+        this.radius = 1; // 粒子大小
+      }
+
+      // 更新粒子位置與速度
+      update(grid) {
+        let fx = 0, fy = 0;
+        let gridX = Math.floor(this.x / GRID_SIZE);
+        let gridY = Math.floor(this.y / GRID_SIZE);
+
+        // 只檢查附近的網格，加速計算
+        for (let dx = -1; dx <= 1; dx++) {
+          for (let dy = -1; dy <= 1; dy++) {
+            let neighbors = grid[gridX + dx]?.[gridY + dy];
+            if (!neighbors) continue;
+
+            for (let other of neighbors) {
+              if (other === this) continue;
+
+              let dx = other.x - this.x;
+              let dy = other.y - this.y;
+
+              // 處理無邊界模式
+              if (dx > canvas.width / 2) dx -= canvas.width;
+              if (dx < -canvas.width / 2) dx += canvas.width;
+              if (dy > canvas.height / 2) dy -= canvas.height;
+              if (dy < -canvas.height / 2) dy += canvas.height;
+
+              let distSq = dx * dx + dy * dy;
+              if (distSq < NEARBY_RADIUS_SQ && distSq > 0.1) {
+                let dist = Math.sqrt(distSq);
+                let force = INTERACTION_MATRIX[this.type][other.type] / (dist * 0.1);
+                if (dist < 20) force *= -0.2;
+                else if (dist < 50) force *= 2;
+
+                fx += force * (dx / dist);
+                fy += force * (dy / dist);
+              }
+            }
+          }
+        }
+
+        // 更新速度與位置
+        this.vx = (this.vx + fx) * FRICTION;
+        this.vy = (this.vy + fy) * FRICTION;
+        this.x += this.vx;
+        this.y += this.vy;
+
+        // 處理邊界條件
+        if (this.x < 0) this.x += canvas.width;
+        if (this.x > canvas.width) this.x -= canvas.width;
+        if (this.y < 0) this.y += canvas.height;
+        if (this.y > canvas.height) this.y -= canvas.height;
+      }
+
+      // 繪製粒子
+      draw() {
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+        ctx.fillStyle = this.color;
+        ctx.fill();
+      }
+    }
+
+    // 建立所有粒子
+    const particles = [];
+    for (let i = 0; i < PARTICLE_COUNT; i++) {
+      particles.push(new Particle());
+    }
+
+    // 建立網格加速鄰近搜尋
+    function buildGrid() {
+      let grid = [];
+      for (let i = 0; i < Math.ceil(canvas.width / GRID_SIZE); i++) {
+        grid[i] = [];
+        for (let j = 0; j < Math.ceil(canvas.height / GRID_SIZE); j++) {
+          grid[i][j] = [];
+        }
+      }
+
+      for (let particle of particles) {
+        let gridX = Math.floor(particle.x / GRID_SIZE);
+        let gridY = Math.floor(particle.y / GRID_SIZE);
+        grid[gridX][gridY].push(particle);
+      }
+      return grid;
+    }
+
+    // 動畫迴圈
+    function animate() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      updateInteractionMatrix();
+
+      let grid = buildGrid(); // 更新網格
+      for (let particle of particles) {
+        particle.update(grid);
+        particle.draw();
+      }
+
+      requestAnimationFrame(animate);
+    }
+
+    animate();
+
+    // 監聽點擊事件，切換全螢幕模式
+    canvas.addEventListener('click', () => {
+      isFullScreen ? document.exitFullscreen() : document.documentElement.requestFullscreen();
+      isFullScreen = !isFullScreen;
+    });
+
+  </script>
+</body>
+</html>

@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+?<!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
   <meta charset="UTF-8">
@@ -28,7 +28,11 @@
     const ctx = canvas.getContext('2d');
 
     // 定義粒子的顏色種類
-    const COLORS = ['#FFFFFF','#EAEAEA','#F8F8F8','#C0C0C0','#DDDDDD','#B2B2B2','#808080','#4D4D4D','#5F5F5F','#292929','#111111','#080808'];
+    const COLORS = 
+
+['#FFFFFF','#EAEAEA','#F8F8F8','#C0C0C0','#DDDDDD','#B2B2B2','#808080','#4D4D4D'
+
+,'#5F5F5F','#292929','#111111','#080808'];
 
     // 定義參數
     const PARTICLE_COUNT = 5000; // 粒子數量
@@ -74,7 +78,9 @@
       // 按比例更新矩陣值
       for (let i = 0; i < oldMatrix.length; i++) {
         for (let j = 0; j < oldMatrix[i].length; j++) {
-          INTERACTION_MATRIX[i][j] = oldMatrix[i][j] * (1 - smoothT) + newMatrix[i][j] * smoothT;
+          INTERACTION_MATRIX[i][j] = oldMatrix[i][j] * (1 - smoothT) + 
+
+newMatrix[i][j] * smoothT;
         }
       }
 
@@ -121,7 +127,9 @@
           const dist = Math.sqrt(dx * dx + dy * dy);
 
           if (dist < NEARBY_RADIUS) {
-            let force = INTERACTION_MATRIX[this.type][other.type] / (dist * 0.1);
+            let force = INTERACTION_MATRIX[this.type][other.type] / (dist * 
+
+0.1);
             if (dist < 20) force *= -2;
             else if (dist < 50) force *= 20;
 
@@ -202,6 +210,15 @@
     }
 
     animate();
+
+    // 監聽點擊事件，切換全螢幕模式
+    canvas.addEventListener('click', () => {
+      isFullScreen ? document.exitFullscreen() : 
+
+document.documentElement.requestFullscreen();
+      isFullScreen = !isFullScreen;
+    });
+
   </script>
 </body>
 </html>

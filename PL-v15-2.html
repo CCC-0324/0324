@@ -1,0 +1,455 @@
+﻿<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8"> <!-- 設定字符編碼為UTF-8 -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"> <!-- 設定視窗大小 -->
+  <title>Particle Life v15-2</title> <!-- 網頁標題 -->
+  <style>
+    /* 設定頁面樣式，確保畫布置中並使用全螢幕高度 */
+    body { 
+      margin: 0;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      background-color: black;
+    }
+    canvas {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%); 
+      border: none; /* 移除畫布邊框 */
+    }
+  </style>
+</head>
+<body>
+  <!-- 設定畫布尺寸與ID -->
+  <canvas id="particleCanvas" width="1000" height="620"></canvas>
+  <script>
+    // 取得畫布元素與2D繪圖上下文
+    const canvas = document.getElementById('particleCanvas');
+    const ctx = canvas.getContext('2d');
+
+    // 儲存紅點的最後波動時間
+    const rippleTimestamps = new Map();
+
+    // 波動效果管理器
+    const ripples = [];
+
+    // 定義所有粒子的顏色
+    const COLORS = ['#FFFFFF','#EAEAEA','#F8F8F8','#C0C0C0','#DDDDDD','#B2B2B2','#808080','#4D4D4D','#5F5F5F','#292929','#111111','#080808'];
+    const PARTICLE_COUNT = 3000;      // 粒子總數
+    const MAX_FORCE = 0.2;            // 最大作用力
+    const FRICTION = 0.68;            // 摩擦係數
+    const CHANGE_INTERVAL = 60000;    // 矩陣更新間隔 (毫秒)
+    const TRANSITION_DURATION = 30000; // 過渡時間 (毫秒)
+    const NEARBY_RADIUS = 100;        // 粒子間互動距離
+
+    // 記錄矩陣更新與過渡開始時間
+    let lastChangeTime = Date.now();
+    let transitionStartTime = Date.now();
+    let oldMatrix = generateInteractionMatrix();
+    let newMatrix = generateInteractionMatrix();
+    let INTERACTION_MATRIX = structuredClone(oldMatrix); // 當前互動矩陣
+    let isFullScreen = false; // 全螢幕標記
+
+    /**
+     * 生成隨機互動矩陣
+     * 每個顏色代表一種粒子類型
+     */
+    function generateInteractionMatrix() {
+      const TYPES = COLORS.length;
+      let matrix = [];
+      for (let i = 0; i < TYPES; i++) {
+        matrix[i] = [];
+        for (let j = 0; j < TYPES; j++) {
+          // 產生 -MAX_FORCE 到 MAX_FORCE 之間的隨機值
+          matrix[i][j] = Math.random() * 2 * MAX_FORCE - MAX_FORCE;
+        }
+      }
+      return matrix;
+    }
+
+    /**
+     * 緩動函數，讓過渡更平滑
+     * @param {number} t - 過渡比例 (0~1)
+     * @returns {number} 緩動後的值
+     */
+    function easeInOutSine(t) {
+      return -(Math.cos(Math.PI * t) - 1) / 2;
+    }
+
+    /**
+     * 更新互動矩陣，讓舊矩陣平滑過渡到新矩陣
+     */
+    function updateInteractionMatrix() {
+      let elapsed = Date.now() - transitionStartTime;
+      let t = Math.min(elapsed / TRANSITION_DURATION, 1);
+      let smoothT = easeInOutSine(t);
+
+      // 根據過渡進度更新每個矩陣元素
+      for (let i = 0; i < oldMatrix.length; i++) {
+        for (let j = 0; j < oldMatrix[i].length; j++) {
+          INTERACTION_MATRIX[i][j] = oldMatrix[i][j] * (1 - smoothT) + newMatrix[i][j] * smoothT;
+        }
+      }
+
+      // 過渡完成且超過指定時間後更新互動矩陣
+      if (t >= 1 && Date.now() - lastChangeTime > CHANGE_INTERVAL) {
+        lastChangeTime = Date.now();
+        transitionStartTime = Date.now();
+        oldMatrix = structuredClone(newMatrix);
+        newMatrix = generateInteractionMatrix();
+      }
+    }
+
+    /**
+     * 將十六進位顏色轉換為RGB物件
+     * @param {string} hex - 十六進位顏色碼
+     * @returns {object} 包含 r, g, b 的對象
+     */
+    function hexToRgb(hex) {
+      hex = hex.replace(/^#/, '');
+      let bigint = parseInt(hex, 16);
+      let r = (bigint >> 16) & 255;
+      let g = (bigint >> 8) & 255;
+      let b = bigint & 255;
+      return { r, g, b };
+    }
+
+    /**
+     * 粒子類別定義
+     */
+    class Particle {
+      constructor() {
+        // 隨機生成初始位置與速度
+        this.x = Math.random() * canvas.width;
+        this.y = Math.random() * canvas.height;
+        this.vx = Math.random() * 2 - 1;
+        this.vy = Math.random() * 2 - 1;
+        this.type = Math.floor(Math.random() * COLORS.length);
+        this.color = COLORS[this.type];
+        this.radius = 1;
+        this.clustered = false; // 聚集狀態標記
+      }
+
+      /**
+       * 更新粒子位置與速度
+       * @param {Particle[]} particles - 所有粒子陣列
+       */
+      update(particles) {
+        let fx = 0, fy = 0;
+
+        // 計算與其他粒子之間的作用力
+        for (let other of particles) {
+          if (other === this) continue; // 排除自己
+          let dx = other.x - this.x;
+          let dy = other.y - this.y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+
+          if (dist < NEARBY_RADIUS) {
+            // 根據距離計算作用力
+            let force = INTERACTION_MATRIX[this.type][other.type] / (dist * 0.1);
+            if (dist < 20) force *= -0.2;
+            else if (dist < 50) force *= 2;
+
+            fx += force * (dx / dist);
+            fy += force * (dy / dist);
+          }
+        }
+
+        // 更新速度並施加摩擦力
+        this.vx = (this.vx + fx) * FRICTION;
+        this.vy = (this.vy + fy) * FRICTION;
+
+        // 更新粒子位置
+        this.x += this.vx;
+        this.y += this.vy;
+
+        // 邊界碰撞檢測與處理
+        // 當粒子碰到邊界時，使用較溫和的反彈處理，避免粒子因摩擦力過大而卡住
+        if (this.x < 0) {
+          this.x = 0;
+          // 若反彈後速度過小則給予最小正向速度，否則取目前正向速度
+          this.vx = Math.abs(this.vx) < 0.5 ? 0.5 : Math.abs(this.vx);
+        }
+        if (this.x > canvas.width) {
+          this.x = canvas.width;
+          this.vx = Math.abs(this.vx) < 0.5 ? -0.5 : -Math.abs(this.vx);
+        }
+        if (this.y < 0) {
+          this.y = 0;
+          this.vy = Math.abs(this.vy) < 0.5 ? 0.5 : Math.abs(this.vy);
+        }
+        if (this.y > canvas.height) {
+          this.y = canvas.height;
+          this.vy = Math.abs(this.vy) < 0.5 ? -0.5 : -Math.abs(this.vy);
+        }
+
+        // 額外檢查是否過於接近邊界，並施加內推力將粒子推回畫布內部
+        const edgeThreshold = 5; // 邊界門檻距離
+        if (this.x < edgeThreshold) {
+          this.vx += 5; // 推向右邊
+        }
+        if (this.x > canvas.width - edgeThreshold) {
+          this.vx -= 5; // 推向左邊
+        }
+        if (this.y < edgeThreshold) {
+          this.vy += 5; // 推向下邊
+        }
+        if (this.y > canvas.height - edgeThreshold) {
+          this.vy -= 5; // 推向上邊
+        }
+      }
+
+      /**
+       * 畫出粒子
+       */
+      draw() {
+        // 如果粒子聚集則加上閃爍效果
+        if (this.clustered) {
+          const blink = 0.5 + 0.5 * Math.sin(2 * Math.PI * Date.now() / 2000);
+          const rgb = hexToRgb(this.color);
+          const alpha = 0.3 + 0.2 * blink;
+          ctx.beginPath();
+          ctx.arc(this.x, this.y, this.radius * 1.5, 0, Math.PI * 2);
+          ctx.fillStyle = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${alpha})`;
+          ctx.fill();
+        }
+        // 畫出基本粒子
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+        ctx.fillStyle = this.color;
+        ctx.fill();
+      }
+    }
+
+class DarkMatterParticle extends Particle {
+  constructor(x, y) {
+    super();
+    this.x = x;
+    this.y = y;
+    this.vx = (Math.random() - 0.5) * 20; // 速度比普通粒子快 10 倍以上
+    this.vy = (Math.random() - 0.5) * 20;
+    this.color = "#000000"; // 黑色，與背景相同
+    this.radius = 2; // 可以比一般粒子大一些
+    this.lifetime = 5000; // 存活 5 秒
+    this.activeTime = 2000; // 2秒後開始作用斥力
+    this.creationTime = Date.now();
+  }
+
+  update(particles) {
+    this.vx += (Math.random() - 0.5) * 2;
+    this.vy += (Math.random() - 0.5) * 2;
+    this.vx = Math.max(-15, Math.min(15, this.vx));
+    this.vy = Math.max(-15, Math.min(15, this.vy));
+    this.x += this.vx;
+    this.y += this.vy;
+
+    if (this.x < 0) this.x = 0, this.vx *= -1;
+    if (this.x > canvas.width) this.x = canvas.width, this.vx *= -1;
+    if (this.y < 0) this.y = 0, this.vy *= -1;
+    if (this.y > canvas.height) this.y = canvas.height, this.vy *= -1;
+
+    // 加入延遲作用時間，前 2 秒不會影響其他粒子
+    if (Date.now() - this.creationTime < this.activeTime) return;
+
+    // 施加強隨機斥力給附近的普通粒子
+    for (let other of particles) {
+      if (other instanceof DarkMatterParticle) continue;
+      let dx = other.x - this.x, dy = other.y - this.y, dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist < 30 && dist > 0.1) {
+        let repulsion = 5 + Math.random() * 5;
+        other.vx += (dx / dist) * repulsion;
+        other.vy += (dy / dist) * repulsion;
+      }
+    }
+  }
+
+  isExpired() {
+    return Date.now() - this.creationTime > this.lifetime;
+  }
+}
+
+    // 初始化粒子陣列
+    const particles = [];
+    for (let i = 0; i < PARTICLE_COUNT; i++) {
+      particles.push(new Particle());
+    }
+
+    const darkMatterParticles = [];
+
+// 將粒子集群的追蹤和波動產生邏輯改進
+function updateClusters() {
+  // 重置所有粒子的集群狀態
+  for (let particle of particles) {
+    particle.clustered = false;
+  }
+  
+  // 識別集群
+  const clusters = [];
+  const processed = new Set();
+  
+  for (let i = 0; i < particles.length; i++) {
+    if (processed.has(i)) continue;
+    
+    const particle = particles[i];
+    const clusterMembers = [i];
+    processed.add(i);
+    
+    // 尋找同一集群的其他粒子
+    for (let j = 0; j < particles.length; j++) {
+      if (i === j || processed.has(j)) continue;
+      
+      const other = particles[j];
+      const dx = other.x - particle.x;
+      const dy = other.y - particle.y;
+      const distSquared = dx * dx + dy * dy;
+      
+      if (distSquared < 50 * 50) {
+        clusterMembers.push(j);
+        processed.add(j);
+      }
+    }
+    
+    // 如果集群成員數量足夠多
+    if (clusterMembers.length >= 150) {
+      // 將所有成員標記為集群一部分
+      for (const memberId of clusterMembers) {
+        particles[memberId].clustered = true;
+      }
+      
+      // 計算集群中心點
+      let centerX = 0, centerY = 0;
+      for (const memberId of clusterMembers) {
+        centerX += particles[memberId].x;
+        centerY += particles[memberId].y;
+      }
+      centerX /= clusterMembers.length;
+      centerY /= clusterMembers.length;
+      
+      // 儲存集群中心
+      clusters.push({
+        x: centerX,
+        y: centerY,
+        id: `cluster-${clusters.length}`
+      });
+    }
+  }
+  
+  return clusters;
+}
+
+// 波動效果類別
+class Ripple {
+  constructor(x, y) {
+    this.x = x;
+    this.y = y;
+    this.radius = 0;
+    this.maxRadius = 100;
+    this.opacity = 0.2;
+    this.speed = 2;
+  }
+
+  update() {
+    this.radius += this.speed;
+    this.opacity = 0.8 * (1 - this.radius / this.maxRadius);
+    return this.opacity > 0;
+  }
+
+  draw() {
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+    ctx.strokeStyle = `rgba(10, 10, 10, ${this.opacity})`;
+    ctx.lineWidth = 3;
+    ctx.stroke();
+  }
+}
+
+function updateRipples() {
+  const now = Date.now();
+  const clusters = updateClusters();
+  
+  // 使用集群 ID 作為識別依據，而不是每一幀都使用瞬時座標
+  for (const cluster of clusters) {
+    const lastRippleTime = rippleTimestamps.get(cluster.id) || 0;
+    
+    if (now - lastRippleTime >= 30000) { // 30秒一次波動
+      ripples.push(new Ripple(cluster.x, cluster.y));
+      rippleTimestamps.set(cluster.id, now);
+
+      // 產生暗物質粒子
+      darkMatterParticles.push(new DarkMatterParticle(cluster.x, cluster.y));
+    }
+  }
+  
+  // 更新和移除過期的波動
+  for (let i = ripples.length - 1; i >= 0; i--) {
+    if (!ripples[i].update()) {
+      ripples.splice(i, 1);
+    }
+  }
+}
+
+    // 繪製所有波動效果
+    function drawRipples() {
+      for (const ripple of ripples) {
+        ripple.draw();
+      }
+    }
+
+    /**
+     * 動畫主循環
+     */
+function animate() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  updateInteractionMatrix();
+  
+  // 更新粒子位置但暫時不繪製
+  for (let particle of particles) {
+    particle.update(particles);
+  }
+  
+  // 先更新和繪製波動
+  updateRipples();
+  drawRipples();
+  
+  // 然後再繪製粒子，這樣粒子會顯示在波動上方
+  for (let particle of particles) {
+    particle.draw();
+  }
+
+// 更新暗物質粒子並移除過期的
+for (let i = darkMatterParticles.length - 1; i >= 0; i--) {
+  darkMatterParticles[i].update(particles);
+  if (darkMatterParticles[i].isExpired()) {
+    darkMatterParticles.splice(i, 1);
+  }
+}
+
+// 繪製暗物質粒子（雖然看不到，但仍可存在）
+for (let dmp of darkMatterParticles) {
+  dmp.draw();
+}
+  
+  requestAnimationFrame(animate);
+}
+
+    // 啟動動畫循環
+    animate();
+
+    // 點擊畫布切換全螢幕模式
+    canvas.addEventListener('click', () => {
+      if (isFullScreen) {
+        document.exitFullscreen();
+        isFullScreen = false;
+      } else {
+        document.documentElement.requestFullscreen();
+        isFullScreen = true;
+      }
+    });
+  </script>
+</body>
+</html>
+/html>

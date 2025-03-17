@@ -39,7 +39,7 @@
 
     // 定義所有粒子的顏色
     const COLORS = ['#FFFFFF','#EAEAEA','#F8F8F8','#C0C0C0','#DDDDDD','#B2B2B2','#808080','#4D4D4D','#5F5F5F','#292929','#111111','#080808'];
-    const PARTICLE_COUNT = 2000;      // 粒子總數
+    const PARTICLE_COUNT = 3000;      // 粒子總數
     const MAX_FORCE = 0.2;            // 最大作用力
     const FRICTION = 0.68;            // 摩擦係數
     const CHANGE_INTERVAL = 60000;    // 矩陣更新間隔 (毫秒)
@@ -369,7 +369,7 @@ class Ripple {
   draw() {
     ctx.beginPath();
     ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
-    ctx.strokeStyle = `rgba(20, 20, 20, ${this.opacity})`;
+    ctx.strokeStyle = `rgba(50, 50, 50, ${this.opacity})`;
     ctx.lineWidth = 3;
     ctx.stroke();
   }

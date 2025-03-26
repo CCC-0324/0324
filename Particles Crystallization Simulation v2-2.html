@@ -1,0 +1,176 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>粒子結晶模擬</title>
+    <style>
+        body {
+            margin: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: black;
+        }
+        canvas {
+            position: absolute;
+            left: 50%;
+            top: 50%;
+            transform: translate(-50%, -50%);
+            border: none;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="canvas" width="1000" height="630"></canvas>
+    <script>
+        // 設定畫布
+        const canvas = document.getElementById("canvas");
+        const ctx = canvas.getContext("2d");
+
+        // 模擬參數
+        const n = 2000;             // 粒子數量
+        const minDistance = 4;       // 粒子間最小距離
+        const attractionStrength = 0.03; // 吸引力強度
+        const repulsionStrength = 0.3;  // 反推力強度 (防止粒子太近)
+        const minVelocity = 50.0;    // 最小速度，防止粒子完全靜止
+
+        let particles = [];
+
+        // 初始化粒子
+        function initializeParticles() {
+            for (let i = 0; i < n; i++) {
+                particles.push({
+                    x: Math.random() * canvas.width,
+                    y: Math.random() * canvas.height,
+                    vx: (Math.random() - 0.5) * 2, // 隨機速度
+                    vy: (Math.random() - 0.5) * 2,
+                    type: i % 2, // 0: 白色, 1: 紅色
+                    friction: i % 2 === 0 ? 0.9905 : 0.9905, // 設定摩擦係數：白色 0.9905，紅色 0.9905
+                    radius: i % 2 === 0 ? 1 : 0.5, // 設定粒子半徑：白色 1，紅色 0.5
+                    magneticRadius: i % 2 === 0 ? 10 : 5 // 設定磁場影響範圍：白色 10，紅色 5
+                });
+            }
+        }
+
+        // 計算粒子間的磁場影響、吸引力與最小距離限制
+        function applyForces() {
+            for (let i = 0; i < particles.length; i++) {
+                for (let j = i + 1; j < particles.length; j++) {
+                    let p1 = particles[i];
+                    let p2 = particles[j];
+                    let dx = p2.x - p1.x;
+                    let dy = p2.y - p1.y;
+                    let distance = Math.sqrt(dx * dx + dy * dy);
+
+                    // 磁場影響：當兩個粒子的距離小於磁場範圍時，減少速度
+                    if (distance < p1.magneticRadius || distance < p2.magneticRadius) {
+                        p1.vx *= p1.friction; // 使用粒子的摩擦係數
+                        p1.vy *= p1.friction;
+                        p2.vx *= p2.friction; // 使用粒子的摩擦係數
+                        p2.vy *= p2.friction;
+                    }
+
+                    // 吸引力作用
+                    if (distance > minDistance && distance < p1.magneticRadius && distance < p2.magneticRadius) {
+                        let force = attractionStrength / distance; // 吸引力與距離成反比
+                        let angle = Math.atan2(dy, dx);
+                        p1.vx += Math.cos(angle) * force;
+                        p1.vy += Math.sin(angle) * force;
+                        p2.vx -= Math.cos(angle) * force;
+                        p2.vy -= Math.sin(angle) * force;
+                    }
+
+                    // 最小距離限制：當距離小於 minDistance，施加反推力
+                    if (distance < minDistance) {
+                        let pushForce = repulsionStrength * (minDistance - distance);
+                        let angle = Math.atan2(dy, dx);
+                        p1.vx -= Math.cos(angle) * pushForce;
+                        p1.vy -= Math.sin(angle) * pushForce;
+                        p2.vx += Math.cos(angle) * pushForce;
+                        p2.vy += Math.sin(angle) * pushForce;
+                    }
+                }
+            }
+        }
+
+        // 更新粒子的位置
+        function updateParticlePositions() {
+            applyForces(); // 計算磁場影響與吸引力
+
+            for (let i = 0; i < particles.length; i++) {
+                let p = particles[i];
+
+                // 更新速度並確保最小運動量，避免粒子完全靜止
+                if (Math.abs(p.vx) < minVelocity) p.vx += (Math.random() - 0.5) * 0.1;
+                if (Math.abs(p.vy) < minVelocity) p.vy += (Math.random() - 0.5) * 0.1;
+
+                // 更新位置
+                p.x += p.vx;
+                p.y += p.vy;
+
+                // 保持粒子在畫布內
+                if (p.x < 0) p.x = canvas.width;
+                if (p.x > canvas.width) p.x = 0;
+                if (p.y < 0) p.y = canvas.height;
+                if (p.y > canvas.height) p.y = 0;
+            }
+        }
+
+        // 繪製粒子
+        function drawParticles() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height); // 清除畫布
+
+            ctx.strokeStyle = 'rgba(50, 50, 50, 2)';
+            for (let i = 0; i < particles.length; i++) {
+                let p = particles[i];
+                // 畫出磁場範圍
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, p.magneticRadius, 0, 2 * Math.PI);
+                ctx.stroke();
+            }
+
+            for (let i = 0; i < particles.length; i++) {
+                let p = particles[i];
+                // 畫出粒子，並根據 type 設定顏色和半徑
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, p.radius, 0, 2 * Math.PI);
+                ctx.fillStyle = p.type === 0 ? 'white' : 'red'; // 白色和紅色
+                ctx.fill();
+            }
+        }
+
+        // 動畫函數
+        function animate() {
+            updateParticlePositions(); // 更新粒子位置
+            drawParticles();            // 繪製粒子
+            requestAnimationFrame(animate); // 呼叫動畫函數
+        }
+
+        // 初始化並開始動畫
+        initializeParticles();
+        requestAnimationFrame(animate);
+
+        let isFullScreen = false;
+
+        // 點擊畫布切換全螢幕模式
+        canvas.addEventListener('click', () => {
+            if (!isFullScreen) {
+                document.documentElement.requestFullscreen().then(() => {
+                    canvas.style.width = "1000px";
+                    canvas.style.height = "620px";
+                    canvas.style.position = "absolute";
+                    canvas.style.left = "50%";
+                    canvas.style.top = "50%";
+                    canvas.style.transform = "translate(-50%, -50%)";
+                    isFullScreen = true;
+                }).catch(err => console.log(err));
+            } else {
+                document.exitFullscreen();
+                isFullScreen = false;
+            }
+        });
+    </script>
+</body>
+</html>

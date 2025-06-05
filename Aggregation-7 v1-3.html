@@ -1,0 +1,744 @@
+﻿<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>粒子聚集模擬 - 可移動聚集體</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
+  <style>
+    body {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      margin: 0;
+      background: #111;
+    }
+    canvas {
+      border: 1px solid #888;
+    }
+  </style>
+</head>
+<body>
+<script>
+
+const radius = 2;
+const minDist = radius * 2;
+
+// 醉漢走路參數
+const RANDOM_FORCE = 0.2;
+const MAX_SPEED = 1.5;
+const FRICTION = 0.88;
+
+// 聚集體醉漢走路參數
+const CLUSTER_RANDOM_FORCE = 0.15;
+const CLUSTER_MAX_SPEED = 0.8;
+const CLUSTER_FRICTION = 0.95;
+
+// 吸引力參數
+const ATTRACT_RADIUS = 40;
+const ATTRACT_STRENGTH = 0.015;
+const ATTRACT_RADIUS_SQ = ATTRACT_RADIUS * ATTRACT_RADIUS;
+
+// 聚集檢測參數
+const CLUSTER_DETECT_RADIUS = radius * 3.0;
+const CLUSTER_DETECT_RADIUS_SQ = CLUSTER_DETECT_RADIUS * CLUSTER_DETECT_RADIUS;
+const CLUSTER_STABILITY_TIME = 120;
+
+// 最密填充結構參數
+const HCP_BOND_LENGTH = radius * 2.2;
+const CLUSTER_SPRING_STRENGTH = 0.03;
+const CLUSTER_DAMPING = 0.95;
+const PARTICLE_MICRO_MOVEMENT = 0.08;
+
+// 網格系統
+const gridSize = 50;
+let grid = new Map();
+
+let particles = [];
+let clusters = [];
+let idCounter = 0;
+
+// 自定義距離平方函數
+function distSq(v1, v2) {
+  let dx = v1.x - v2.x;
+  let dy = v1.y - v2.y;
+  return dx * dx + dy * dy;
+}
+
+function setup() {
+  createCanvas(1000, 620);
+  
+  // 創建100個紅色粒子
+  for (let i = 0; i < 500; i++) {
+    particles.push(new Particle(random(width), random(height), 'red'));
+  }
+  
+  // 創建100個藍色粒子
+  for (let i = 0; i < 500; i++) {
+    particles.push(new Particle(random(width), random(height), 'blue'));
+  }
+}
+
+function draw() {
+  try {
+    background(20);
+    
+    updateGrid();
+    
+    // 粒子間的吸引力和碰撞
+    for (let p of particles) {
+      if (!p || !p.pos) continue;
+      
+      let nearby = queryNearby(p.pos);
+      
+      // 同色吸引力
+      for (let q of nearby) {
+        if (!q || !q.pos || p.id === q.id || p.color !== q.color) continue;
+        
+        let dSq = distSq(p.pos, q.pos);
+        if (dSq < ATTRACT_RADIUS_SQ && dSq > 1) {
+          let d = Math.sqrt(dSq);
+          let force = p5.Vector.sub(q.pos, p.pos);
+          let strength = ATTRACT_STRENGTH * (1 - d / ATTRACT_RADIUS);
+          force.setMag(strength);
+          p.vel.add(force);
+        }
+      }
+      
+      // 防碰撞
+      for (let q of nearby) {
+        if (!q || !q.pos || p.id === q.id) continue;
+        
+        let dSq = distSq(p.pos, q.pos);
+        if (dSq < minDist * minDist && dSq > 0) {
+          let d = Math.sqrt(dSq);
+          let overlap = 0.5 * (minDist - d);
+          let dir = p5.Vector.sub(p.pos, q.pos);
+          if (dir.mag() > 0) {
+            dir.normalize().mult(overlap);
+            p.pos.add(dir);
+            q.pos.sub(dir);
+          }
+        }
+      }
+    }
+    
+    // 聚集體間的碰撞檢測
+    handleClusterCollisions();
+    
+    // 檢測聚集形成
+    detectClusters();
+    
+    // 更新粒子
+    for (let p of particles) {
+      if (p) {
+        p.update();
+        p.display();
+      }
+    }
+    
+    // 更新和顯示聚集
+    for (let cluster of clusters) {
+      if (cluster) {
+        cluster.update();
+        cluster.display();
+      }
+    }
+    
+    // 統計資訊
+    fill(255);
+    textSize(14);
+    let redCount = particles.filter(p => p && p.color === 'red').length;
+    let blueCount = particles.filter(p => p && p.color === 'blue').length;
+    let redClusters = clusters.filter(c => c && c.color === 'red').length;
+    let blueClusters = clusters.filter(c => c && c.color === 'blue').length;
+    
+    text(`紅色粒子: ${redCount} | 藍色粒子: ${blueCount}`, 10, 25);
+    text(`紅色聚集: ${redClusters} | 藍色聚集: ${blueClusters}`, 10, 45);
+    text(`總聚集數: ${clusters.length}`, 10, 65);
+    
+  } catch (error) {
+    console.error('繪圖錯誤:', error);
+    // 重置狀態以防止持續錯誤
+    particles = particles.filter(p => p && p.pos);
+    clusters = clusters.filter(c => c && c.center);
+  }
+}
+
+function handleClusterCollisions() {
+  try {
+    // 聚集體之間的碰撞
+    for (let i = 0; i < clusters.length; i++) {
+      let c1 = clusters[i];
+      if (!c1 || !c1.center) continue;
+      
+      for (let j = i + 1; j < clusters.length; j++) {
+        let c2 = clusters[j];
+        if (!c2 || !c2.center) continue;
+        
+        let dSq = distSq(c1.center, c2.center);
+        let minClusterDist = CLUSTER_DETECT_RADIUS * 1.8;
+        
+        if (dSq < minClusterDist * minClusterDist && dSq > 0) {
+          let d = Math.sqrt(dSq);
+          let overlap = minClusterDist - d;
+          let dir = p5.Vector.sub(c1.center, c2.center);
+          if (dir.mag() > 0) {
+            dir.normalize();
+            
+            // 計算碰撞力
+            let force = dir.copy().mult(overlap * 0.1);
+            
+            // 添加碰撞力到聚集體
+            c1.addForce(force);
+            c2.addForce(force.mult(-1));
+            
+            // 添加旋轉力矩
+            let torque1 = (Math.random() - 0.5) * 0.02;
+            let torque2 = (Math.random() - 0.5) * 0.02;
+            c1.addTorque(torque1);
+            c2.addTorque(torque2);
+          }
+        }
+      }
+      
+      // 聚集體與自由粒子的碰撞
+      let cluster = clusters[i];
+      for (let p of particles) {
+        if (!p || !p.pos) continue;
+        
+        let dSq = distSq(cluster.center, p.pos);
+        let minDist = CLUSTER_DETECT_RADIUS + radius;
+        
+        if (dSq < minDist * minDist && dSq > 0) {
+          let d = Math.sqrt(dSq);
+          let overlap = minDist - d;
+          let dir = p5.Vector.sub(p.pos, cluster.center);
+          if (dir.mag() > 0) {
+            dir.normalize();
+            
+            // 粒子彈開
+            p.vel.add(dir.mult(overlap * 0.2));
+            
+            // 聚集體受到反作用力和旋轉
+            let force = dir.mult(-overlap * 0.05);
+            cluster.addForce(force);
+            
+            // 添加旋轉效果
+            let torque = (Math.random() - 0.5) * 0.015;
+            cluster.addTorque(torque);
+          }
+        }
+      }
+    }
+  } catch (error) {
+    console.error('聚集體碰撞處理錯誤:', error);
+  }
+}
+
+function detectClusters() {
+  try {
+    // 檢查每個粒子是否形成7粒子聚集
+    let particlesToRemove = [];
+    
+    for (let p of particles) {
+      if (!p || p.inCluster) continue;
+      
+      let sameColorNeighbors = [];
+      
+      // 找同色鄰居
+      for (let q of particles) {
+        if (!q || p.id === q.id || p.color !== q.color || q.inCluster) continue;
+        
+        let dSq = distSq(p.pos, q.pos);
+        if (dSq < CLUSTER_DETECT_RADIUS_SQ) {
+          sameColorNeighbors.push(q);
+        }
+      }
+      
+      // 檢查是否形成7粒子結構（1個中心+6個周圍）
+      if (sameColorNeighbors.length >= 6) {
+        // 驗證是否為穩定的六邊形結構
+        if (isValidClusterStructure(p, sameColorNeighbors)) {
+          // 增加穩定性計數
+          p.stabilityCount = (p.stabilityCount || 0) + 1;
+          for (let neighbor of sameColorNeighbors.slice(0, 6)) {
+            neighbor.stabilityCount = (neighbor.stabilityCount || 0) + 1;
+          }
+          
+          // 如果穩定時間足夠，形成聚集
+          if (p.stabilityCount > CLUSTER_STABILITY_TIME) {
+            let clusterParticles = [p, ...sameColorNeighbors.slice(0, 6)];
+            let cluster = new Cluster(clusterParticles, p.color);
+            clusters.push(cluster);
+            
+            // 標記粒子為已聚集
+            for (let particle of clusterParticles) {
+              particle.inCluster = true;
+              particlesToRemove.push(particle.id);
+            }
+          }
+        } else {
+          // 重置穩定性計數
+          p.stabilityCount = 0;
+        }
+      } else {
+        p.stabilityCount = 0;
+      }
+    }
+    
+    // 移除已形成聚集的粒子
+    particles = particles.filter(p => p && !particlesToRemove.includes(p.id));
+  } catch (error) {
+    console.error('聚集檢測錯誤:', error);
+  }
+}
+
+function isValidClusterStructure(center, neighbors) {
+  try {
+    if (neighbors.length < 6) return false;
+    
+    // 選擇最近的6個鄰居
+    neighbors.sort((a, b) => distSq(center.pos, a.pos) - distSq(center.pos, b.pos));
+    let sixNeighbors = neighbors.slice(0, 6);
+    
+    // 檢查6個鄰居是否形成大致的六邊形
+    let angles = [];
+    for (let neighbor of sixNeighbors) {
+      let angle = Math.atan2(neighbor.pos.y - center.pos.y, neighbor.pos.x - center.pos.x);
+      angles.push(angle);
+    }
+    
+    angles.sort((a, b) => a - b);
+    
+    // 檢查角度分佈是否接近均勻（每60度一個）
+    let angleSum = 0;
+    for (let i = 0; i < angles.length; i++) {
+      let nextAngle = angles[(i + 1) % angles.length];
+      let diff = nextAngle - angles[i];
+      if (diff < 0) diff += 2 * Math.PI;
+      angleSum += Math.abs(diff - Math.PI / 3);
+    }
+    
+    return angleSum < 2;
+  } catch (error) {
+    console.error('結構驗證錯誤:', error);
+    return false;
+  }
+}
+
+class Particle {
+  constructor(x, y, color) {
+    this.id = idCounter++;
+    this.pos = createVector(x, y);
+    this.vel = createVector(0, 0);
+    this.color = color;
+    this.inCluster = false;
+    this.stabilityCount = 0;
+  }
+  
+  update() {
+    try {
+      // 醉漢走路 - 隨機力
+      let randomForce = p5.Vector.random2D().mult(RANDOM_FORCE);
+      this.vel.add(randomForce);
+      
+      // 限制速度
+      this.vel.limit(MAX_SPEED);
+      
+      // 添加摩擦力
+      this.vel.mult(FRICTION);
+      
+      // 更新位置
+      this.pos.add(this.vel);
+      
+      // 邊界處理
+      if (this.pos.x < radius) {
+        this.pos.x = radius;
+        this.vel.x *= -0.8;
+      }
+      if (this.pos.x > width - radius) {
+        this.pos.x = width - radius;
+        this.vel.x *= -0.8;
+      }
+      if (this.pos.y < radius) {
+        this.pos.y = radius;
+        this.vel.y *= -0.8;
+      }
+      if (this.pos.y > height - radius) {
+        this.pos.y = height - radius;
+        this.vel.y *= -0.8;
+      }
+    } catch (error) {
+      console.error('粒子更新錯誤:', error, this);
+    }
+  }
+  
+  display() {
+    try {
+      noStroke();
+      if (this.color === 'red') {
+        fill(255, 80, 80);
+      } else {
+        fill(80, 120, 255);
+      }
+      
+      // 如果正在形成聚集，顯示光暈
+      if (this.stabilityCount > 0) {
+        let alpha = map(this.stabilityCount, 0, CLUSTER_STABILITY_TIME, 0, 100);
+        if (this.color === 'red') {
+          fill(255, 150, 150, alpha);
+        } else {
+          fill(150, 180, 255, alpha);
+        }
+        ellipse(this.pos.x, this.pos.y, radius * 3);
+        
+        if (this.color === 'red') {
+          fill(255, 80, 80);
+        } else {
+          fill(80, 120, 255);
+        }
+      }
+      
+      ellipse(this.pos.x, this.pos.y, radius * 2);
+    } catch (error) {
+      console.error('粒子顯示錯誤:', error, this);
+    }
+  }
+}
+
+class Cluster {
+  constructor(particles, color) {
+    try {
+      this.particles = particles || [];
+      this.color = color;
+      this.center = this.calculateCenter();
+      this.vel = createVector(0, 0);
+      this.age = 0;
+      this.rotation = 0;
+      this.angularVel = 0;
+      this.externalForce = createVector(0, 0);
+      this.torque = 0;
+      
+      // 創建理想的最密填充結構
+      this.setupHCPStructure();
+      
+      // 為每個粒子設置獨立的速度
+      for (let p of this.particles) {
+        if (p) {
+          p.clusterVel = createVector(0, 0);
+        }
+      }
+    } catch (error) {
+      console.error('聚集體建構錯誤:', error);
+      this.particles = [];
+      this.center = createVector(0, 0);
+    }
+  }
+  
+  setupHCPStructure() {
+    try {
+      // 設置標準的六邊形最密填充結構
+      this.idealPositions = [];
+      
+      // 中心粒子
+      this.idealPositions.push(createVector(0, 0));
+      
+      // 六個周圍粒子，形成正六邊形
+      for (let i = 0; i < 6; i++) {
+        let angle = (i * Math.PI) / 3;
+        let x = HCP_BOND_LENGTH * Math.cos(angle);
+        let y = HCP_BOND_LENGTH * Math.sin(angle);
+        this.idealPositions.push(createVector(x, y));
+      }
+      
+      // 初始化粒子的相對位置
+      for (let i = 0; i < Math.min(this.particles.length, this.idealPositions.length); i++) {
+        let p = this.particles[i];
+        let idealPos = this.idealPositions[i];
+        if (p && idealPos) {
+          p.relativePos = idealPos.copy();
+          p.pos = p5.Vector.add(this.center, p.relativePos);
+        }
+      }
+    } catch (error) {
+      console.error('HCP結構設置錯誤:', error);
+      this.idealPositions = [createVector(0, 0)];
+    }
+  }
+  
+  calculateCenter() {
+    try {
+      let center = createVector(0, 0);
+      let validParticles = 0;
+      
+      for (let p of this.particles) {
+        if (p && p.pos) {
+          center.add(p.pos);
+          validParticles++;
+        }
+      }
+      
+      if (validParticles > 0) {
+        center.div(validParticles);
+      }
+      
+      return center;
+    } catch (error) {
+      console.error('中心計算錯誤:', error);
+      return createVector(0, 0);
+    }
+  }
+  
+  addForce(force) {
+    if (force && this.externalForce) {
+      this.externalForce.add(force);
+    }
+  }
+  
+  addTorque(torque) {
+    if (typeof torque === 'number' && !isNaN(torque)) {
+      this.torque += torque;
+    }
+  }
+  
+  update() {
+    try {
+      this.age++;
+      
+      // 聚集體的醉漢走路運動（較弱）
+      let randomForce = p5.Vector.random2D().mult(CLUSTER_RANDOM_FORCE * 0.5);
+      this.vel.add(randomForce);
+      
+      // 添加外部力
+      if (this.externalForce) {
+        this.vel.add(this.externalForce);
+        this.externalForce.mult(0);
+      }
+      
+      // 角速度更新
+      if (typeof this.torque === 'number' && !isNaN(this.torque)) {
+        this.angularVel += this.torque;
+        this.angularVel *= 0.95;
+        this.rotation += this.angularVel;
+        this.torque = 0;
+      }
+      
+      // 限制聚集體速度
+      this.vel.limit(CLUSTER_MAX_SPEED);
+      
+      // 添加摩擦力
+      this.vel.mult(CLUSTER_FRICTION);
+      
+      // 更新聚集體中心位置
+      this.center.add(this.vel);
+      
+      // 邊界處理
+      let clusterRadius = CLUSTER_DETECT_RADIUS;
+      if (this.center.x < clusterRadius) {
+        this.center.x = clusterRadius;
+        this.vel.x *= -0.7;
+        this.angularVel += (Math.random() - 0.5) * 0.02;
+      }
+      if (this.center.x > width - clusterRadius) {
+        this.center.x = width - clusterRadius;
+        this.vel.x *= -0.7;
+        this.angularVel += (Math.random() - 0.5) * 0.02;
+      }
+      if (this.center.y < clusterRadius) {
+        this.center.y = clusterRadius;
+        this.vel.y *= -0.7;
+        this.angularVel += (Math.random() - 0.5) * 0.02;
+      }
+      if (this.center.y > height - clusterRadius) {
+        this.center.y = height - clusterRadius;
+        this.vel.y *= -0.7;
+        this.angularVel += (Math.random() - 0.5) * 0.02;
+      }
+      
+      // 更新聚集體中粒子的物理
+      this.updateParticlePhysics();
+    } catch (error) {
+      console.error('聚集體更新錯誤:', error);
+    }
+  }
+  
+  updateParticlePhysics() {
+    try {
+      for (let i = 0; i < Math.min(this.particles.length, this.idealPositions.length); i++) {
+        let p = this.particles[i];
+        let idealPos = this.idealPositions[i];
+        
+        if (!p || !p.pos || !idealPos) continue;
+        
+        // 計算旋轉後的理想位置
+        let rotatedIdeal = createVector(
+          idealPos.x * Math.cos(this.rotation) - idealPos.y * Math.sin(this.rotation),
+          idealPos.x * Math.sin(this.rotation) + idealPos.y * Math.cos(this.rotation)
+        );
+        
+        // 彈簧力：拉向理想位置
+        let targetPos = p5.Vector.add(this.center, rotatedIdeal);
+        let springForce = p5.Vector.sub(targetPos, p.pos);
+        springForce.mult(CLUSTER_SPRING_STRENGTH);
+        
+        // 添加隨機微振動
+        let microMovement = p5.Vector.random2D().mult(PARTICLE_MICRO_MOVEMENT);
+        
+        // 確保clusterVel存在
+        if (!p.clusterVel) {
+          p.clusterVel = createVector(0, 0);
+        }
+        
+        // 更新粒子速度
+        p.clusterVel.add(springForce);
+        p.clusterVel.add(microMovement);
+        p.clusterVel.mult(CLUSTER_DAMPING);
+        p.clusterVel.limit(0.5);
+        
+        // 更新粒子位置
+        p.pos.add(p.clusterVel);
+        
+        // 更新相對位置
+        p.relativePos = p5.Vector.sub(p.pos, this.center);
+      }
+    } catch (error) {
+      console.error('粒子物理更新錯誤:', error);
+    }
+  }
+  
+  display() {
+    try {
+      // 繪製聚集的外圈
+      stroke(255, 255, 255, 60);
+      strokeWeight(1);
+      noFill();
+      ellipse(this.center.x, this.center.y, CLUSTER_DETECT_RADIUS * 2.2);
+      
+      // 繪製理想的最密填充結構連接線
+      stroke(255, 255, 255, 30);
+      strokeWeight(1);
+      for (let i = 0; i < this.particles.length; i++) {
+        let p1 = this.particles[i];
+        if (!p1 || !p1.pos) continue;
+        
+        for (let j = i + 1; j < this.particles.length; j++) {
+          let p2 = this.particles[j];
+          if (!p2 || !p2.pos) continue;
+          
+          let d = p5.Vector.dist(p1.pos, p2.pos);
+          
+          // 只連接相鄰的粒子
+          if (d < HCP_BOND_LENGTH * 1.3) {
+            line(p1.pos.x, p1.pos.y, p2.pos.x, p2.pos.y);
+          }
+        }
+      }
+      
+      // 繪製粒子
+      noStroke();
+      for (let p of this.particles) {
+        if (!p || !p.pos) continue;
+        
+        // 粒子陰影
+        if (this.color === 'red') {
+          fill(200, 60, 60, 100);
+        } else {
+          fill(60, 100, 200, 100);
+        }
+        ellipse(p.pos.x + 1, p.pos.y + 1, radius * 2.2);
+        
+        // 主粒子
+        if (this.color === 'red') {
+          fill(255, 100, 100);
+        } else {
+          fill(100, 140, 255);
+        }
+        ellipse(p.pos.x, p.pos.y, radius * 2);
+        
+        // 高光
+        fill(255, 255, 255, 150);
+        ellipse(p.pos.x - radius/3, p.pos.y - radius/3, radius/2);
+      }
+      
+      // 繪製中心點和旋轉指示
+      push();
+      translate(this.center.x, this.center.y);
+      rotate(this.rotation);
+      
+      // 旋轉指示箭頭
+      stroke(255, 255, 255, 100);
+      strokeWeight(2);
+      line(0, 0, 8, 0);
+      line(6, -2, 8, 0);
+      line(6, 2, 8, 0);
+      
+      pop();
+      
+      // 中心點
+      if (this.color === 'red') {
+        fill(255, 150, 150, 200);
+      } else {
+        fill(150, 180, 255, 200);
+      }
+      ellipse(this.center.x, this.center.y, 3);
+      
+      // 標籤
+      fill(255, 255, 255, 180);
+      textAlign(CENTER);
+      textSize(8);
+      let rotationDegrees = Math.floor(this.rotation * 180 / Math.PI);
+      text(`聚集體 (${rotationDegrees}°)`, this.center.x, this.center.y - 35);
+      textAlign(LEFT);
+    } catch (error) {
+      console.error('聚集體顯示錯誤:', error);
+    }
+  }
+}
+
+// 網格系統
+function updateGrid() {
+  try {
+    grid.clear();
+    for (let p of particles) {
+      if (p && p.pos) {
+        let key = gridKey(p.pos);
+        if (!grid.has(key)) grid.set(key, []);
+        grid.get(key).push(p);
+      }
+    }
+  } catch (error) {
+    console.error('網格更新錯誤:', error);
+  }
+}
+
+function gridKey(pos) {
+  let gx = Math.floor(pos.x / gridSize);
+  let gy = Math.floor(pos.y / gridSize);
+  return `${gx},${gy}`;
+}
+
+function queryNearby(pos) {
+  try {
+    let gx = Math.floor(pos.x / gridSize);
+    let gy = Math.floor(pos.y / gridSize);
+    let neighbors = [];
+    
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dy = -1; dy <= 1; dy++) {
+        let key = `${gx + dx},${gy + dy}`;
+        if (grid.has(key)) {
+          neighbors.push(...grid.get(key));
+        }
+      }
+    }
+    return neighbors;
+  } catch (error) {
+    console.error('鄰居查詢錯誤:', error);
+    return [];
+  }
+}
+
+</script>
+</body>
+</html>

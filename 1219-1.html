@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<title>量子觀測模擬</title>
+<style>
+  html, body {
+    margin: 0;
+    background: black;
+    overflow: hidden;
+    color: white;
+    font-family: system-ui;
+  }
+  #ui {
+    position: fixed;
+    top: 12px;
+    left: 12px;
+    z-index: 10;
+  }
+  button {
+    padding: 8px 14px;
+    font-size: 14px;
+    cursor: pointer;
+  }
+</style>
+</head>
+<body>
+
+<div id="ui">
+  <button id="observeBtn">觀測</button>
+</div>
+
+<canvas id="canvas"></canvas>
+
+<script>
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
+resize();
+window.addEventListener("resize", resize);
+
+function resize() {
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+}
+
+/* ---------- 狀態 ---------- */
+let mode = "superposition"; 
+// superposition → collapse → expand
+
+let collapsePoint = null;
+let collapseProgress = 0;
+
+/* ---------- 能量雲設定 ---------- */
+const cloudPoints = [];
+const POINT_COUNT = 120;
+
+for (let i = 0; i < POINT_COUNT; i++) {
+  cloudPoints.push(randomWavePoint());
+}
+
+function randomWavePoint() {
+  return {
+    x: canvas.width / 2 + (Math.random() - 0.5) * 300,
+    y: canvas.height / 2 + (Math.random() - 0.5) * 300,
+    phase: Math.random() * Math.PI * 2,
+    speed: Math.random() * 0.02 + 0.01
+  };
+}
+
+/* ---------- 動畫主循環 ---------- */
+function animate() {
+  ctx.fillStyle = "rgba(0,0,0,0.2)";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  if (mode === "superposition") drawSuperposition();
+  if (mode === "collapse") drawCollapse();
+  if (mode === "expand") drawExpansion();
+
+  requestAnimationFrame(animate);
+}
+animate();
+
+/* ---------- 繪製：疊加態 ---------- */
+function drawSuperposition() {
+  ctx.globalCompositeOperation = "lighter";
+
+  cloudPoints.forEach(p => {
+    p.phase += p.speed;
+    const r = 10 + Math.sin(p.phase) * 6;
+
+    ctx.beginPath();
+    ctx.fillStyle = "rgba(120,180,255,0.15)";
+    ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+    ctx.fill();
+  });
+
+  ctx.globalCompositeOperation = "source-over";
+}
+
+/* ---------- 觀測 → 崩塌 ---------- */
+function observe() {
+  if (mode !== "superposition") return;
+
+  collapsePoint = weightedRandomPoint();
+  collapseProgress = 0;
+  mode = "collapse";
+
+  playCollapseSound();
+}
+
+document.getElementById("observeBtn").onclick = observe;
+canvas.onclick = observe;
+
+/* ---------- 加權抽樣（機率密度） ---------- */
+function weightedRandomPoint() {
+  const weights = cloudPoints.map(p => 1);
+  const sum = weights.reduce((a, b) => a + b, 0);
+  let r = Math.random() * sum;
+
+  for (let i = 0; i < cloudPoints.length; i++) {
+    r -= weights[i];
+    if (r <= 0) return cloudPoints[i];
+  }
+  return cloudPoints[0];
+}
+
+/* ---------- 繪製：崩塌 ---------- */
+function drawCollapse() {
+  collapseProgress += 0.04;
+
+  cloudPoints.forEach(p => {
+    p.x += (collapsePoint.x - p.x) * 0.15;
+    p.y += (collapsePoint.y - p.y) * 0.15;
+  });
+
+  ctx.beginPath();
+  ctx.fillStyle = "rgba(255,255,255,0.9)";
+  ctx.arc(collapsePoint.x, collapsePoint.y, 18, 0, Math.PI * 2);
+  ctx.fill();
+
+  if (collapseProgress > 1) {
+    mode = "expand";
+  }
+}
+
+/* ---------- 繪製：重新演化 ---------- */
+function drawExpansion() {
+  cloudPoints.forEach(p => {
+    p.x += (Math.random() - 0.5) * 4;
+    p.y += (Math.random() - 0.5) * 4;
+  });
+
+  drawSuperposition();
+
+  if (Math.random() < 0.01) {
+    cloudPoints.forEach((p, i) => {
+      cloudPoints[i] = randomWavePoint();
+    });
+    mode = "superposition";
+  }
+}
+
+/* ---------- 音效（收束感） ---------- */
+function playCollapseSound() {
+  const audioCtx = new AudioContext();
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+
+  osc.frequency.setValueAtTime(600, audioCtx.currentTime);
+  osc.frequency.exponentialRampToValueAtTime(80, audioCtx.currentTime + 0.25);
+
+  gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.3);
+
+  osc.connect(gain);
+  gain.connect(audioCtx.destination);
+  osc.start();
+  osc.stop(audioCtx.currentTime + 0.3);
+}
+</script>
+</body>
+</html>

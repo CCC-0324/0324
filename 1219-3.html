@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <title>量子崩塌模擬：隨機漲落版</title>
+    <style>
+        body { margin: 0; background-color: #050510; color: #00ffcc; font-family: 'Courier New', monospace; overflow: hidden; display: flex; flex-direction: column; align-items: center; }
+        canvas { cursor: crosshair; }
+        .ui-panel { position: absolute; top: 20px; pointer-events: none; text-align: center; text-shadow: 0 0 10px #00ffcc; }
+        .instructions { position: absolute; bottom: 30px; color: rgba(0, 255, 204, 0.5); letter-spacing: 2px; }
+    </style>
+</head>
+<body>
+
+<div class="ui-panel">
+    <h1>QUANTUM FLUCTUATION</h1>
+    <div id="status">狀態: 疊加態 (Superposition)</div>
+</div>
+
+<div class="instructions">點擊觀察波函數崩塌</div>
+<canvas id="canvas"></canvas>
+
+<script>
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+const statusText = document.getElementById('status');
+
+let width, height;
+let particles = [];
+
+let wave = {
+    x: 0, y: 0,
+    sigma: 60,
+    targetSigma: 60,
+    isCollapsed: false,
+    color: { h: 180, s: 100, l: 60 }
+};
+
+function init() {
+    resize();
+    wave.x = width / 2;
+    wave.y = height / 2;
+    animate();
+}
+
+function resize() {
+    width = canvas.width = window.innerWidth;
+    height = canvas.height = window.innerHeight;
+}
+
+window.addEventListener('resize', resize);
+
+function randomGaussian(mean, sigma) {
+    let u = 0, v = 0;
+    while(u === 0) u = Math.random();
+    while(v === 0) v = Math.random();
+    let num = Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
+    return num * sigma + mean;
+}
+
+window.addEventListener('mousedown', () => {
+    if (wave.isCollapsed) return;
+
+    // 隨機決定崩塌點
+    const collapseX = randomGaussian(wave.x, wave.sigma);
+    const collapseY = randomGaussian(wave.y, wave.sigma);
+
+    wave.isCollapsed = true;
+    wave.targetSigma = 1; // 瞬間收縮
+    wave.x = collapseX;
+    wave.y = collapseY;
+    
+    statusText.innerText = "狀態: 觀測完成 (Determined)";
+    statusText.style.color = "#fff";
+
+    setTimeout(() => {
+        wave.isCollapsed = false;
+        wave.targetSigma = 80; // 再次擴散
+        statusText.innerText = "狀態: 疊加態 (Superposition)";
+        statusText.style.color = "#00ffcc";
+    }, 2500);
+});
+
+function drawWave() {
+    // 繪製底層的機率雲發光
+    const gradient = ctx.createRadialGradient(wave.x, wave.y, 0, wave.x, wave.y, wave.sigma * 2.5);
+    let alpha = wave.isCollapsed ? 0.8 : 0.3;
+    gradient.addColorStop(0, `hsla(${wave.color.h}, 100%, 70%, ${alpha})`);
+    gradient.addColorStop(1, `hsla(${wave.color.h}, 100%, 20%, 0)`);
+
+    ctx.globalCompositeOperation = "lighter";
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, width, height);
+
+    // 粒子邏輯：醉漢走路 (Random Walk)
+    if (!wave.isCollapsed) {
+        // 每一幀產生新的漲落點
+        for (let i = 0; i < 8; i++) {
+            particles.push({
+                x: randomGaussian(wave.x, wave.sigma),
+                y: randomGaussian(wave.y, wave.sigma),
+                life: 1.0,
+                decay: 0.01 + Math.random() * 0.02,
+                size: Math.random() * 2
+            });
+        }
+    }
+
+    ctx.beginPath();
+    for (let i = particles.length - 1; i >= 0; i--) {
+        let p = particles[i];
+        
+        // --- 醉漢走路核心：隨機抖動 ---
+        let walkStep = 2; 
+        p.x += (Math.random() - 0.5) * walkStep;
+        p.y += (Math.random() - 0.5) * walkStep;
+        
+        // 繪製粒子
+        ctx.moveTo(p.x, p.y);
+        ctx.arc(p.x, p.y, p.size * p.life, 0, Math.PI * 2);
+        
+        p.life -= p.decay;
+        if (p.life <= 0) particles.splice(i, 1);
+    }
+    ctx.fillStyle = `hsla(${wave.color.h}, 100%, 80%, 0.8)`;
+    ctx.fill();
+}
+
+function animate() {
+    ctx.globalCompositeOperation = "source-over";
+    ctx.fillStyle = "rgba(5, 5, 20, 0.15)"; // 較長的殘影感
+    ctx.fillRect(0, 0, width, height);
+
+    if (!wave.isCollapsed) {
+        wave.sigma += 0.1; // 隨時間擴散
+        if (wave.sigma > 120) wave.sigma = 120;
+    } else {
+        // 崩塌時的平滑收縮動畫
+        wave.sigma += (wave.targetSigma - wave.sigma) * 0.3;
+    }
+
+    drawWave();
+    requestAnimationFrame(animate);
+}
+
+init();
+</script>
+</body>
+</html>

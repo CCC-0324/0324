@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <title>量子波函數崩塌模擬器</title>
+    <style>
+        body {
+            margin: 0;
+            background-color: #050510;
+            color: #00ffcc;
+            font-family: 'Courier New', Courier, monospace;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        canvas {
+            cursor: crosshair;
+        }
+        .ui-panel {
+            position: absolute;
+            top: 20px;
+            pointer-events: none;
+            text-align: center;
+        }
+        .instructions {
+            position: absolute;
+            bottom: 30px;
+            color: rgba(0, 255, 204, 0.6);
+        }
+    </style>
+</head>
+<body>
+
+<div class="ui-panel">
+    <h1>QUANTUM MEASUREMENT</h1>
+    <div id="status">狀態: 疊加態 (Superposition)</div>
+</div>
+
+<div class="instructions">點擊畫面任意處進行「觀測 (Observation)」</div>
+
+<canvas id="canvas"></canvas>
+
+<script>
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+const statusText = document.getElementById('status');
+
+let width, height;
+let particles = [];
+
+// 波函數狀態參數
+let wave = {
+    x: 0,
+    y: 0,
+    sigma: 50,       // 不確定性 (標準差)
+    targetSigma: 50, // 目標寬度
+    isCollapsed: false,
+    color: { h: 180, s: 100, l: 50 }
+};
+
+// 初始化
+function init() {
+    resize();
+    wave.x = width / 2;
+    wave.y = height / 2;
+    animate();
+}
+
+function resize() {
+    width = canvas.width = window.innerWidth;
+    height = canvas.height = window.innerHeight;
+}
+
+window.addEventListener('resize', resize);
+
+// Box-Muller 變換：用於從高斯分佈中隨機抽樣
+function randomGaussian(mean, sigma) {
+    let u = 0, v = 0;
+    while(u === 0) u = Math.random();
+    while(v === 0) v = Math.random();
+    let num = Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
+    return num * sigma + mean;
+}
+
+// 監聽觀測事件
+window.addEventListener('mousedown', () => {
+    if (wave.isCollapsed) return;
+
+    // 1. 決定論介入：根據目前的機率密度(sigma)決定一個確定的崩塌點
+    const collapseX = randomGaussian(wave.x, wave.sigma);
+    const collapseY = randomGaussian(wave.y, wave.sigma);
+
+    // 2. 啟動崩塌動畫
+    wave.isCollapsed = true;
+    wave.targetSigma = 2; // 縮減到一個幾乎是點的狀態
+    wave.x = collapseX;
+    wave.y = collapseY;
+    
+    statusText.innerText = "狀態: 波函數崩塌 (Collapsed!)";
+    statusText.style.color = "#ff3366";
+
+    // 3. 設定一段時間後「重新演化」
+    setTimeout(() => {
+        wave.isCollapsed = false;
+        wave.targetSigma = 100; // 開始擴散
+        statusText.innerText = "狀態: 重新演化 (Re-evolving...)";
+        statusText.style.color = "#00ffcc";
+    }, 2000);
+});
+
+function drawWave() {
+    // 繪製背景發光效果 (Glow)
+    const gradient = ctx.createRadialGradient(
+        wave.x, wave.y, 0, 
+        wave.x, wave.y, wave.sigma * 3
+    );
+    
+    let alpha = wave.isCollapsed ? 1.0 : 0.4 + Math.sin(Date.now() * 0.005) * 0.1;
+    
+    gradient.addColorStop(0, `hsla(${wave.color.h}, 100%, 70%, ${alpha})`);
+    gradient.addColorStop(0.2, `hsla(${wave.color.h}, 100%, 50%, ${alpha * 0.5})`);
+    gradient.addColorStop(1, `hsla(${wave.color.h}, 100%, 50%, 0)`);
+
+    ctx.fillStyle = gradient;
+    ctx.globalCompositeOperation = "lighter"; // 讓光影疊加更有能量感
+    ctx.fillRect(0, 0, width, height);
+
+    // 模擬「不確定性」的粒子擾動
+    if (!wave.isCollapsed) {
+        for (let i = 0; i < 5; i++) {
+            particles.push({
+                x: randomGaussian(wave.x, wave.sigma),
+                y: randomGaussian(wave.y, wave.sigma),
+                life: 1.0,
+                vx: (Math.random() - 0.5) * 2,
+                vy: (Math.random() - 0.5) * 2
+            });
+        }
+    }
+
+    // 繪製與更新粒子
+    ctx.beginPath();
+    for (let i = particles.length - 1; i >= 0; i--) {
+        let p = particles[i];
+        ctx.moveTo(p.x, p.y);
+        ctx.arc(p.x, p.y, 1, 0, Math.PI * 2);
+        p.x += p.vx;
+        p.y += p.vy;
+        p.life -= 0.02;
+        if (p.life <= 0) particles.splice(i, 1);
+    }
+    ctx.fillStyle = "#fff";
+    ctx.fill();
+}
+
+function animate() {
+    // 每一幀的背景淡化效果，造成殘影感
+    ctx.globalCompositeOperation = "source-over";
+    ctx.fillStyle = "rgba(5, 5, 16, 0.2)";
+    ctx.fillRect(0, 0, width, height);
+
+    // 物理演化邏輯
+    if (!wave.isCollapsed) {
+        // 隨時間自然擴散，不確定性增加
+        wave.sigma += 0.2;
+        if (wave.sigma > 150) wave.sigma = 150; 
+    } else {
+        // 崩塌中：快速逼近目標點與極小 sigma
+        wave.sigma += (wave.targetSigma - wave.sigma) * 0.2;
+    }
+
+    drawWave();
+    requestAnimationFrame(animate);
+}
+
+init();
+</script>
+</body>
+</html>

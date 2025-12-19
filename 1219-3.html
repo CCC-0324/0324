@@ -95,7 +95,7 @@ function drawWave() {
     // 粒子邏輯：醉漢走路 (Random Walk)
     if (!wave.isCollapsed) {
         // 每一幀產生新的漲落點
-        for (let i = 0; i < 8; i++) {
+        for (let i = 0; i < 1; i++) {
             particles.push({
                 x: randomGaussian(wave.x, wave.sigma),
                 y: randomGaussian(wave.y, wave.sigma),

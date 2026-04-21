@@ -1,0 +1,195 @@
+﻿<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <title>網頁版爆爆王 - 視覺強化版</title>
+    <style>
+        body { background-color: #2c3e50; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; font-family: sans-serif; color: white; overflow: hidden; }
+        canvas { background-color: #34495e; border: 5px solid #ecf0f1; box-shadow: 0 0 30px rgba(0,0,0,0.7); border-radius: 4px; }
+        #ui { margin-bottom: 10px; padding: 10px 20px; background: rgba(0,0,0,0.5); border-radius: 20px; font-size: 1.2em; border: 1px solid #7f8c8d; }
+        .p-score { color: #3498db; font-weight: bold; text-shadow: 1px 1px 2px #000; }
+        .b-score { color: #f1c40f; font-weight: bold; text-shadow: 1px 1px 2px #000; }
+        p { margin-top: 10px; color: #bdc3c7; }
+    </style>
+</head>
+<body>
+
+    <div id="ui">
+        <span class="p-score">玩家 (藍) 重生: <span id="pS">0</span></span> | 
+        <span class="b-score">機器人 (黃) 重生: <span id="bS">0</span></span>
+    </div>
+    <canvas id="gameCanvas" width="600" height="520"></canvas>
+    <p>方向鍵移動 | 空白鍵放炸彈</p>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // 地圖設定
+        const TILE = 40; const ROWS = 13; const COLS = 15;
+        const map = [
+            [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1], [1,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+            [1,0,1,0,1,0,1,0,1,0,1,0,1,0,1], [1,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+            [1,0,1,0,1,0,1,0,1,0,1,0,1,0,1], [1,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+            [1,0,1,0,1,0,1,0,1,0,1,0,1,0,1], [1,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+            [1,0,1,0,1,0,1,0,1,0,1,0,1,0,1], [1,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+            [1,0,1,0,1,0,1,0,1,0,1,0,1,0,1], [1,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+            [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]
+        ];
+
+        let player = { x: 45, y: 45, size: 28, speed: 4, score: 0, alive: true, color: '#3498db', lastDir: 'down' };
+        let bot = { x: 525, y: 445, size: 28, speed: 2, score: 0, alive: true, color: '#f1c40f', dir: 'stop', dirTimer: 0, bombTimer: 0 };
+
+        let bombs = [];
+        let explosions = [];
+        const keys = {};
+
+        window.onkeydown = (e) => { 
+            keys[e.key] = true; 
+            if(e.key === ' ' && player.alive) placeBomb(player);
+            if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.key)) player.lastDir = e.key;
+        };
+        window.onkeyup = (e) => keys[e.key] = false;
+
+        function placeBomb(ent) {
+            const c = Math.floor((ent.x + ent.size/2) / TILE);
+            const r = Math.floor((ent.y + ent.size/2) / TILE);
+            if (!bombs.some(b => b.c === c && b.r === r)) {
+                bombs.push({ c, r, timer: 120, exploded: false });
+            }
+        }
+
+        function isBlocked(nx, ny, ent) {
+            const sides = [{x: nx, y: ny}, {x: nx + ent.size, y: ny}, {x: nx, y: ny + ent.size}, {x: nx + ent.size, y: ny + ent.size}];
+            for (let s of sides) {
+                if (map[Math.floor(s.y / TILE)][Math.floor(s.x / TILE)] === 1) return true;
+            }
+            const currentGrids = [{r: Math.floor(ent.y/TILE), c: Math.floor(ent.x/TILE)}, {r: Math.floor(ent.y/TILE), c: Math.floor((ent.x+ent.size)/TILE)}, {r: Math.floor((ent.y+ent.size)/TILE), c: Math.floor(ent.x/TILE)}, {r: Math.floor((ent.y+ent.size)/TILE), c: Math.floor((ent.x+ent.size)/TILE)}];
+            for (let s of sides) {
+                const gridC = Math.floor(s.x / TILE), gridR = Math.floor(s.y / TILE);
+                const bomb = bombs.find(b => b.c === gridC && b.r === gridR);
+                if (bomb) { if (!currentGrids.some(g => g.c === bomb.c && g.r === bomb.r)) return true; }
+            }
+            return false;
+        }
+
+        function checkDeath(ent) {
+            if (!ent.alive) return;
+            const grids = [{r: Math.floor(ent.y/TILE), c: Math.floor(ent.x/TILE)}, {r: Math.floor(ent.y/TILE), c: Math.floor((ent.x+ent.size)/TILE)}, {r: Math.floor((ent.y+ent.size)/TILE), c: Math.floor(ent.x/TILE)}, {r: Math.floor((ent.y+ent.size)/TILE), c: Math.floor((ent.x+ent.size)/TILE)}];
+            for (let g of grids) {
+                if (explosions.some(ex => ex.c === g.c && ex.r === g.r)) { respawn(ent); break; }
+            }
+        }
+
+        function respawn(ent) {
+            ent.alive = false; ent.score++;
+            document.getElementById('pS').innerText = player.score;
+            document.getElementById('bS').innerText = bot.score;
+            setTimeout(() => {
+                let valid = false;
+                while(!valid) {
+                    let rc = Math.floor(Math.random()*(COLS-2))+1, rr = Math.floor(Math.random()*(ROWS-2))+1;
+                    if(map[rr][rc] === 0) { ent.x = rc*TILE + 6; ent.y = rr*TILE + 6; valid = true; }
+                }
+                ent.alive = true;
+            }, 1000);
+        }
+
+        function explode(c, r) {
+            explosions.push({ c, r, timer: 20 });
+            [[0,1],[0,-1],[1,0],[-1,0]].forEach(([dc, dr]) => {
+                for (let i = 1; i <= 2; i++) {
+                    let nc = c + dc*i, nr = r + dr*i;
+                    if (map[nr][nc] === 1) break;
+                    explosions.push({ c: nc, r: nr, timer: 20 });
+                    let targetBomb = bombs.find(b => b.c === nc && b.r === nr && !b.exploded);
+                    if (targetBomb) { targetBomb.timer = 0; targetBomb.exploded = true; explode(targetBomb.c, targetBomb.r); }
+                }
+            });
+        }
+
+        function update() {
+            if (player.alive) {
+                let nx = player.x, ny = player.y;
+                if (keys['ArrowUp']) ny -= player.speed; if (keys['ArrowDown']) ny += player.speed;
+                if (!isBlocked(player.x, ny, player)) player.y = ny;
+                if (keys['ArrowLeft']) nx -= player.speed; if (keys['ArrowRight']) nx += player.speed;
+                if (!isBlocked(nx, player.y, player)) player.x = nx;
+            }
+            if (bot.alive) {
+                if (--bot.dirTimer <= 0) { bot.dir = ['up','down','left','right','stop'][Math.floor(Math.random()*5)]; bot.dirTimer = 30 + Math.random()*40; }
+                let bx = bot.x, by = bot.y;
+                if(bot.dir==='up') by-=bot.speed; else if(bot.dir==='down') by+=bot.speed; else if(bot.dir==='left') bx-=bot.speed; else if(bot.dir==='right') bx+=bot.speed;
+                if(!isBlocked(bot.x, by, bot)) bot.y = by; else bot.dirTimer = 0;
+                if(!isBlocked(bx, bot.y, bot)) bot.x = bx; else bot.dirTimer = 0;
+                if(++bot.bombTimer > 150) { if(Math.random()<0.3) placeBomb(bot); bot.bombTimer = 0; }
+            }
+            for (let i = bombs.length - 1; i >= 0; i--) {
+                if (--bombs[i].timer <= 0 && !bombs[i].exploded) { bombs[i].exploded = true; explode(bombs[i].c, bombs[i].r); }
+            }
+            bombs = bombs.filter(b => !b.exploded);
+            for (let i = explosions.length - 1; i >= 0; i--) { if (--explosions[i].timer <= 0) explosions.splice(i, 1); }
+            checkDeath(player); checkDeath(bot);
+        }
+
+        // 畫眼睛的輔助函數
+        function drawEyes(x, y, size, color, dir) {
+            ctx.fillStyle = 'white';
+            let eyeSize = 6;
+            let offset = 4;
+            let eyeX1 = x + 6, eyeX2 = x + size - 12, eyeY = y + 6;
+
+            // 根據方向調整眼神
+            if (dir.includes('Up')) eyeY -= 2;
+            if (dir.includes('Down')) eyeY += 2;
+            if (dir.includes('Left')) { eyeX1 -= 2; eyeX2 -= 2; }
+            if (dir.includes('Right')) { eyeX1 += 2; eyeX2 += 2; }
+
+            ctx.fillRect(eyeX1, eyeY, eyeSize, eyeSize);
+            ctx.fillRect(eyeX2, eyeY, eyeSize, eyeSize);
+            ctx.fillStyle = 'black';
+            ctx.fillRect(eyeX1 + 2, eyeY + 2, 2, 2);
+            ctx.fillRect(eyeX2 + 2, eyeY + 2, 2, 2);
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            // 牆壁
+            for (let r=0; r<ROWS; r++) for (let c=0; c<COLS; c++) {
+                if (map[r][c] === 1) {
+                    ctx.fillStyle = '#7f8c8d'; ctx.fillRect(c*TILE, r*TILE, TILE, TILE);
+                    ctx.strokeStyle = '#95a5a6'; ctx.strokeRect(c*TILE+2, r*TILE+2, TILE-4, TILE-4);
+                }
+            }
+            // 炸彈
+            bombs.forEach(b => {
+                let bx = b.c*TILE+20, by = b.r*TILE+20;
+                ctx.fillStyle = '#2c3e50'; ctx.beginPath(); ctx.moveTo(bx, by-15); ctx.lineTo(bx+10, by-22); ctx.stroke(); // 引信
+                let grad = ctx.createRadialGradient(bx-5, by-5, 2, bx, by, 16);
+                grad.addColorStop(0, '#ff7675'); grad.addColorStop(1, '#d63031');
+                ctx.fillStyle = grad; ctx.beginPath(); ctx.arc(bx, by, 16, 0, Math.PI*2); ctx.fill();
+            });
+            // 火焰
+            explosions.forEach(ex => {
+                let grad = ctx.createRadialGradient(ex.c*TILE+20, ex.r*TILE+20, 2, ex.c*TILE+20, ex.r*TILE+20, 20);
+                grad.addColorStop(0, 'rgba(255, 234, 167, 0.9)'); grad.addColorStop(1, 'rgba(232, 67, 27, 0.5)');
+                ctx.fillStyle = grad; ctx.fillRect(ex.c*TILE, ex.r*TILE, TILE, TILE);
+            });
+            // 角色渲染
+            if (player.alive) {
+                ctx.fillStyle = player.color; ctx.fillRect(player.x, player.y, player.size, player.size);
+                let pDir = 'stop';
+                if(keys['ArrowUp']) pDir='Up'; else if(keys['ArrowDown']) pDir='Down'; else if(keys['ArrowLeft']) pDir='Left'; else if(keys['ArrowRight']) pDir='Right';
+                drawEyes(player.x, player.y, player.size, player.color, pDir);
+            }
+            if (bot.alive) {
+                ctx.fillStyle = bot.color; ctx.fillRect(bot.x, bot.y, bot.size, bot.size);
+                drawEyes(bot.x, bot.y, bot.size, bot.color, bot.dir);
+            }
+        }
+
+        function gameLoop() { update(); draw(); requestAnimationFrame(gameLoop); }
+        gameLoop();
+    </script>
+</body>
+</html>

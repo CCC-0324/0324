@@ -1,0 +1,2468 @@
+﻿<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>太空迷霧探索</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+body{background:#000205;display:flex;justify-content:center;align-items:flex-start;min-height:100vh;padding:16px;}
+#gr{font-family:'Courier New',monospace;background:#000810;color:#7ecfff;padding:10px;display:flex;flex-direction:column;gap:8px;user-select:none;max-width:720px;width:100%;}
+#title-bar{text-align:center;padding:6px 0 2px;letter-spacing:4px;font-size:13px;color:#4a8aaa;text-transform:uppercase;}
+#title-bar span{color:#00e5ff;font-size:17px;font-weight:bold;letter-spacing:6px;}
+#hud{display:flex;gap:10px;align-items:center;background:rgba(10,30,60,0.92);border:1px solid #1a4a7a;border-radius:6px;padding:7px 12px;flex-wrap:wrap;}
+.hl{color:#4a8aaa;font-size:10px;letter-spacing:1px;text-transform:uppercase;}
+.hv{color:#00e5ff;font-size:13px;font-weight:bold;}
+.hv-warn{color:#ff6600;font-size:13px;font-weight:bold;animation:blk 0.4s step-end infinite;}
+#eb-bg{width:100px;height:9px;background:#0a1a2a;border:1px solid #1a4a7a;border-radius:3px;overflow:hidden;}
+#eb{height:100%;background:linear-gradient(90deg,#00e5ff,#0099cc);border-radius:3px;transition:width 0.2s;}
+#eb.low{background:linear-gradient(90deg,#ff6600,#cc3300);}
+#eb.crit{background:linear-gradient(90deg,#ff0000,#880000);animation:blk 0.3s step-end infinite;}
+#wb{display:none;background:#ff3300;color:#fff;font-size:11px;font-weight:bold;padding:3px 8px;border-radius:4px;animation:blk 0.5s step-end infinite;}
+#fb{display:none;background:#007744;color:#aaffcc;font-size:11px;font-weight:bold;padding:3px 8px;border-radius:4px;animation:blk 0.7s step-end infinite;}
+#hb{display:none;background:#cc4400;color:#ffddaa;font-size:11px;font-weight:bold;padding:3px 8px;border-radius:4px;animation:blk 0.3s step-end infinite;}
+#sm{color:#ffcc00;font-size:11px;min-width:120px;}
+@keyframes blk{50%{opacity:0;}}
+#ma{display:flex;gap:8px;align-items:flex-start;}
+#cw{border:1px solid #1a4a7a;border-radius:6px;overflow:hidden;flex-shrink:0;position:relative;}
+#gc{display:block;}
+#sp{flex:1;min-width:148px;display:flex;flex-direction:column;gap:8px;}
+.pb{background:rgba(10,30,60,0.88);border:1px solid #1a4a7a;border-radius:6px;padding:9px;}
+.pt{color:#4a8aaa;font-size:10px;letter-spacing:2px;text-transform:uppercase;margin-bottom:7px;}
+.lr{display:flex;align-items:center;gap:7px;font-size:11px;margin-bottom:4px;color:#9ab;}
+.ld{width:12px;height:12px;border-radius:50%;flex-shrink:0;}
+.lt{flex-shrink:0;width:14px;height:14px;display:flex;align-items:center;justify-content:center;}
+#ch{font-size:11px;color:#4a8aaa;line-height:1.8;}
+#ch span{color:#00e5ff;}
+#lb{font-size:10px;color:#5a9aba;line-height:1.6;max-height:130px;overflow-y:auto;}
+#lb div{padding:1px 0;border-bottom:1px solid rgba(26,74,122,0.25);}
+
+/* ── 共用 overlay 底層 ── */
+.ov{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.7);display:none;}
+.modal{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);border-radius:12px;padding:24px 22px 20px;text-align:center;display:none;}
+
+/* 行星探索 */
+#pm-ov{z-index:99;} #pm{z-index:100;background:#0d2540;border:2px solid #00aaff;min-width:300px;box-shadow:0 0 50px rgba(0,180,255,0.18);}
+#pm-name{font-size:18px;font-weight:bold;margin-bottom:8px;color:#fff;}
+#pm-desc{font-size:13px;margin-bottom:20px;line-height:1.5;color:#ccddff;}
+/* 科技 */
+#tp-ov{z-index:101;} #tech-popup{z-index:102;background:#0a2010;border:2px solid #22cc66;min-width:270px;box-shadow:0 0 40px rgba(34,204,100,0.2);}
+#tech-popup h3{color:#44ff88;font-size:17px;margin-bottom:10px;}
+#tech-popup p{color:#ccffdd;font-size:13px;margin-bottom:18px;line-height:1.6;}
+/* 開採爆炸 */
+#exp-ov{z-index:103;} #exp-popup{z-index:104;background:#1a0000;border:2px solid #ff4400;min-width:280px;box-shadow:0 0 50px rgba(255,60,0,0.3);}
+#exp-popup h3{color:#ff6600;font-size:18px;margin-bottom:10px;}
+#exp-popup p{color:#ffccaa;font-size:13px;margin-bottom:18px;line-height:1.6;}
+/* 換圖詢問 */
+#nav-ov{z-index:105;} #nav-popup{z-index:106;background:#060e20;border:2px solid #00aaff;min-width:280px;box-shadow:0 0 40px rgba(0,150,255,0.2);}
+#nav-popup h3{color:#00e5ff;font-size:16px;margin-bottom:8px;}
+#nav-popup p{color:#aaddff;font-size:13px;margin-bottom:18px;line-height:1.5;}
+/* 遊戲結束 */
+#dead-ov{z-index:107;} #dead-popup{z-index:108;background:#0a0000;border:2px solid #ff2200;min-width:300px;box-shadow:0 0 60px rgba(255,30,0,0.35);}
+#dead-popup h3{color:#ff4400;font-size:20px;margin-bottom:10px;}
+#dead-popup p{color:#ffbbaa;font-size:13px;margin-bottom:20px;line-height:1.6;}
+/* 星際穿越 */
+#jump-ov{z-index:109;} #jump-popup{z-index:110;background:#050a20;border:2px solid #cc88ff;min-width:300px;box-shadow:0 0 60px rgba(180,80,255,0.25);}
+#jump-popup h3{color:#dd99ff;font-size:17px;margin-bottom:10px;}
+#jump-popup p{color:#ccbbff;font-size:13px;margin-bottom:14px;line-height:1.5;}
+#jump-input{background:#0a0520;border:2px solid #cc88ff;color:#ffffff;font-family:'Courier New',monospace;font-size:22px;font-weight:bold;letter-spacing:8px;text-align:center;padding:8px 16px;border-radius:8px;width:120px;text-transform:uppercase;}
+#jump-input:focus{outline:none;border-color:#ee99ff;box-shadow:0 0 12px rgba(180,80,255,0.4);}
+/* 升級 */
+#lv-popup{display:none;position:fixed;top:28%;left:50%;transform:translate(-50%,-50%);background:#0a1a30;border:2px solid #00e5ff;border-radius:10px;padding:16px 24px;z-index:111;text-align:center;box-shadow:0 0 30px rgba(0,229,255,0.25);}
+#lv-popup p{color:#fff;font-size:15px;font-weight:bold;}
+#lv-popup .sub{color:#7ecfff;font-size:12px;margin-top:5px;}
+@keyframes fadeout{0%{opacity:1;}70%{opacity:1;}100%{opacity:0;pointer-events:none;}}
+/* 影盟通緝 */
+#wanted-ov{z-index:115;} #wanted-popup{z-index:116;background:#0a0015;border:2px solid #cc00ff;min-width:320px;box-shadow:0 0 60px rgba(180,0,255,0.4);}
+#wanted-popup h3{color:#ff44ff;font-size:20px;margin-bottom:10px;text-shadow:0 0 10px #ff00ff;}
+#wanted-popup p{color:#ddaaff;font-size:13px;margin-bottom:18px;line-height:1.6;}
+.btn-wanted{background:#200030;border:2px solid #cc00ff;color:#ff88ff;padding:10px 28px;border-radius:7px;cursor:pointer;font-family:'Courier New',monospace;font-size:14px;font-weight:bold;}
+.btn-wanted:hover{background:#300040;}
+/* 巡航艦圖例 */
+.lt-lg{flex-shrink:0;width:18px;height:18px;display:flex;align-items:center;justify-content:center;}
+/* 中子星警告 */
+#nstar-ov{z-index:117;} #nstar-popup{z-index:118;background:#050520;border:2px solid #aaccff;min-width:280px;box-shadow:0 0 50px rgba(150,180,255,0.35);}
+#nstar-popup h3{color:#aaddff;font-size:17px;margin-bottom:10px;}
+#nstar-popup p{color:#cce0ff;font-size:13px;margin-bottom:18px;line-height:1.6;}
+/* 超新星護盾 */
+#snova-ov{z-index:119;} #snova-popup{z-index:120;background:#1a1000;border:2px solid #ffcc00;min-width:280px;box-shadow:0 0 50px rgba(255,200,0,0.3);}
+#snova-popup h3{color:#ffdd44;font-size:17px;margin-bottom:10px;}
+#snova-popup p{color:#fff0aa;font-size:13px;margin-bottom:18px;line-height:1.6;}
+
+/* 通用按鈕 */
+.mb{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;}
+.mb button,.btn{min-width:110px;padding:9px 14px;border-radius:8px;cursor:pointer;font-family:'Courier New',monospace;font-size:13px;font-weight:bold;line-height:1.5;border:2px solid;}
+.mb button .sub{display:block;font-size:10px;font-weight:normal;margin-top:3px;opacity:0.85;}
+#btn-mine{background:#3a2000;border-color:#ffaa00;color:#ffee88;}
+#btn-mine:hover{background:#553000;border-color:#ffdd00;}
+#btn-cult{background:#003a10;border-color:#22cc55;color:#88ffaa;}
+#btn-cult:hover{background:#005520;}
+#btn-surv{background:#1a0a30;border-color:#aa55ff;color:#ddaaff;}
+#btn-surv:hover{background:#2a1045;}
+#btn-leave{background:#0a1a2a;border-color:#4488aa;color:#aaccdd;}
+#btn-leave:hover{background:#112233;}
+#tech-ok{background:#0d3020;border:2px solid #22cc66;color:#44ff88;padding:9px 28px;border-radius:7px;cursor:pointer;font-family:'Courier New',monospace;font-size:14px;font-weight:bold;}
+#tech-ok:hover{background:#1a4a30;}
+#tp-hint{font-size:11px;color:#44aa66;margin-top:10px;}
+#exp-ok{background:#2a0500;border:2px solid #ff4400;color:#ff8844;padding:9px 28px;border-radius:7px;cursor:pointer;font-family:'Courier New',monospace;font-size:14px;font-weight:bold;}
+#exp-ok:hover{background:#3a0a00;}
+.btn-yes{background:#003a20;border:2px solid #00cc66;color:#88ffcc;padding:9px 22px;border-radius:7px;cursor:pointer;font-family:'Courier New',monospace;font-size:13px;font-weight:bold;}
+.btn-yes:hover{background:#005530;}
+.btn-no{background:#1a0a00;border:2px solid #aa6600;color:#ffcc88;padding:9px 22px;border-radius:7px;cursor:pointer;font-family:'Courier New',monospace;font-size:13px;font-weight:bold;}
+.btn-no:hover{background:#2a1500;}
+.btn-red{background:#2a0000;border:2px solid #ff3300;color:#ff8866;padding:10px 26px;border-radius:7px;cursor:pointer;font-family:'Courier New',monospace;font-size:14px;font-weight:bold;}
+.btn-red:hover{background:#3a0a00;}
+.btn-purple{background:#150030;border:2px solid #cc88ff;color:#ddaaff;padding:9px 22px;border-radius:7px;cursor:pointer;font-family:'Courier New',monospace;font-size:13px;font-weight:bold;}
+.btn-purple:hover{background:#220040;}
+.btn-cancel{background:#0a0a1a;border:2px solid #445566;color:#99aabb;padding:9px 22px;border-radius:7px;cursor:pointer;font-family:'Courier New',monospace;font-size:13px;}
+.btn-cancel:hover{background:#111122;}
+/* 進入異空間確認 */
+#void-ov{z-index:121;} #void-popup{z-index:122;background:#050010;border:2px solid #8800ff;min-width:320px;box-shadow:0 0 80px rgba(150,0,255,0.5);}
+#void-popup h3{color:#cc44ff;font-size:19px;margin-bottom:10px;text-shadow:0 0 12px #aa00ff;}
+#void-popup p{color:#ddaaff;font-size:13px;margin-bottom:18px;line-height:1.7;}
+/* 異空間按鈕 */
+#btn-enter-void{background:#1a0035;border:2px solid #8800ff;color:#cc88ff;padding:10px 24px;border-radius:8px;cursor:pointer;font-family:'Courier New',monospace;font-size:14px;font-weight:bold;animation:voidPulse 1.5s ease-in-out infinite;}
+#btn-enter-void:hover{background:#2a0050;}
+@keyframes voidPulse{0%,100%{box-shadow:0 0 6px #8800ff;}50%{box-shadow:0 0 20px #cc00ff;}}
+/* 稱號徽章 */
+#title-badges{display:flex;gap:6px;align-items:center;margin-left:auto;}
+.title-badge{padding:3px 10px;border-radius:12px;font-size:11px;font-weight:bold;letter-spacing:1.5px;white-space:nowrap;animation:titleGlow 2s ease-in-out infinite;}
+.title-herder{background:rgba(0,60,40,0.85);border:1px solid #00ffaa;color:#00ffcc;text-shadow:0 0 8px #00ffaa;}
+.title-slayer{background:rgba(60,0,80,0.85);border:1px solid #cc00ff;color:#ff88ff;text-shadow:0 0 8px #cc00ff;}
+@keyframes titleGlow{0%,100%{box-shadow:0 0 4px currentColor;}50%{box-shadow:0 0 12px currentColor;}}
+/* 毀滅星艦倒數警示 */
+#dread-alert{display:none;position:fixed;top:20%;left:50%;transform:translateX(-50%);z-index:150;background:#1a0000;border:2px solid #ff0000;border-radius:10px;padding:16px 32px;text-align:center;color:#ff4444;font-family:'Courier New',monospace;font-size:18px;font-weight:bold;box-shadow:0 0 40px rgba(255,0,0,0.5);animation:redPulse 0.5s step-end infinite;}
+@keyframes redPulse{50%{opacity:0.5;}}
+</style>
+</head>
+<body>
+<div id="gr">
+  <div id="title-bar"><span>深空迷航：探索號</span></div>
+  <div id="hud">
+    <div style="display:flex;align-items:center;gap:5px;">
+      <span class="hl">能量</span>
+      <div id="eb-bg"><div id="eb" style="width:100%"></div></div>
+      <span class="hv" id="ev">100</span>
+      <span style="color:#4a8aaa;font-size:10px">/<span id="emax-v">100</span></span>
+    </div>
+    <div style="display:flex;align-items:center;gap:4px;"><span class="hl">升級值</span><span class="hv" id="xpv">0</span><span style="color:#4a8aaa;font-size:10px">/<span id="xpmax-v">10</span></span></div>
+    <div style="display:flex;align-items:center;gap:4px;"><span class="hl">等級</span><span class="hv" id="lvv">1</span></div>
+    <div style="display:flex;align-items:center;gap:4px;"><span class="hl">視野</span><span class="hv" id="vrv">3</span></div>
+    <div style="display:flex;align-items:center;gap:4px;"><span class="hl">座標</span><span class="hv" id="cd">(50,50)</span></div>
+    <div style="display:flex;align-items:center;gap:4px;"><span class="hl">空域</span><span class="hv" id="seedv" style="color:#ffcc44;letter-spacing:2px">--</span></div>
+    <div style="display:flex;align-items:center;gap:4px;"><span class="hl">已探索</span><span class="hv" id="ec">0</span></div>
+    <div style="display:flex;align-items:center;gap:4px;"><span class="hl">擊殺</span><span class="hv" id="killv" style="color:#ff6644;">0</span></div>
+    <div style="display:flex;align-items:center;gap:4px;"><span class="hl">武器</span><span class="hv" id="laserv" style="color:#ff44ff;">--</span></div>
+    <div id="wb">⚠ 敵艦追擊！</div>
+    <div id="fb">✦ 友艦支援</div>
+    <div id="hb">🔥 恆星危險！</div>
+    <div id="vfb" style="display:none;background:#1a0040;color:#cc88ff;font-size:11px;font-weight:bold;padding:3px 8px;border-radius:4px;border:1px solid #8844cc;">🌀 異空間地圖碎片 <span id="vfv">0</span>/3</div>
+    <button id="btn-enter-void" style="display:none;" onclick="openVoidConfirm()">⚡ 進入異空間</button>
+    <div id="sm">在宇宙中漂移...</div>
+    <div id="title-badges"></div>
+  </div>
+  <div id="ma">
+    <div id="cw"><canvas id="gc" width="500" height="500"></canvas></div>
+    <div id="sp">
+      <div class="pb">
+        <div class="pt">圖例</div>
+        <div class="lr">
+          <svg class="lt" viewBox="0 0 14 14"><polygon points="7,1 10,7 7,11 4,7" fill="#00e5ff"/></svg>我方飛船
+        </div>
+        <div class="lr"><div class="ld" style="background:#ffe066;border-radius:2px;box-shadow:0 0 4px #ffcc00"></div>恆星（附近充能）</div>
+        <div class="lr"><div class="ld" style="background:#44bbff"></div>行星（未探索）</div>
+        <div class="lr"><div class="ld" style="background:#22cc55"></div>行星（培育中）</div>
+        <div class="lr"><div class="ld" style="background:#888"></div>行星（已開採/調查）</div>
+        <div class="lr">
+          <svg class="lt" viewBox="0 0 14 14"><polygon points="7,1 11.5,11 2.5,11" fill="#22cc44"/></svg>友艦
+        </div>
+        <div class="lr">
+          <svg class="lt" viewBox="0 0 14 14"><polygon points="7,1 11.5,11 2.5,11" fill="#ff4444"/></svg>敵艦
+        </div>
+
+      </div>
+      <div class="pb">
+        <div class="pt">操作說明</div>
+        <div id="ch">
+          <span>WASD / 方向鍵</span> 移動<br>
+          <span>Enter</span> 探索當前行星<br>
+          <span>滑鼠點擊</span> 逐格移動<br>
+          <span>ESC</span> 關閉視窗
+        </div>
+      </div>
+      <div class="pb">
+        <div class="pt">科技庫</div>
+        <div id="tech-list" style="font-size:10px;color:#5a9aba;line-height:1.7;">尚未發現科技</div>
+      </div>
+      <div class="pb">
+        <div class="pt">事件記錄</div>
+        <div id="lb"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="ov" id="pm-ov"></div>
+<div class="modal" id="pm">
+  <div id="pm-name">行星 Alpha</div>
+  <div id="pm-desc" style="font-size:13px;margin-bottom:20px;line-height:1.5;color:#ccddff;"></div>
+  <div class="mb">
+    <button id="btn-mine">⛏ 開採<span class="sub">能量+50，升級值+3（30%爆炸風險）</span></button>
+    <button id="btn-cult">🌱 培育<span class="sub">升級值+1，建立補能光環</span></button>
+    <button id="btn-surv">🔬 調查<span class="sub">機率獲得新科技</span></button>
+    <button id="btn-leave">↩ 離開<span class="sub">保留，稍後再來</span></button>
+  </div>
+</div>
+
+<div class="ov" id="tp-ov"></div>
+<div class="modal" id="tech-popup">
+  <h3>🔬 科技發現！</h3>
+  <p id="tech-desc"></p>
+  <button id="tech-ok">✓ 確認收錄</button>
+  <div id="tp-hint">按 ESC 或點擊背景也可關閉</div>
+</div>
+
+<div class="ov" id="exp-ov"></div>
+<div class="modal" id="exp-popup">
+  <h3>💥 行星爆炸！</h3>
+  <p id="exp-desc"></p>
+  <button id="exp-ok">確認</button>
+</div>
+
+<div class="ov" id="nav-ov"></div>
+<div class="modal" id="nav-popup">
+  <h3>🌌 接近空域邊界</h3>
+  <p id="nav-desc">偵測到空域邊界。是否進入鄰近空域？</p>
+  <div style="display:flex;gap:12px;justify-content:center;">
+    <button class="btn-yes" id="btn-nav-yes">✓ 進入新空域</button>
+    <button class="btn-no" id="btn-nav-no">✗ 留在此空域</button>
+  </div>
+</div>
+
+<div class="ov" id="dead-ov"></div>
+<div class="modal" id="dead-popup">
+  <h3 id="dead-title">💀 飛船毀滅</h3>
+  <p id="dead-desc">飛船在宇宙深處化為了碎片。</p>
+  <button class="btn-red" id="btn-restart">⟳ 重新開始</button>
+</div>
+
+<div class="ov" id="jump-ov"></div>
+<div class="modal" id="jump-popup">
+  <h3>✨ 星際穿越機會</h3>
+  <p>您的培育成就解鎖了星際穿越！<br>輸入目標空域種子碼（兩位大寫英文/數字）：</p>
+  <div style="margin:14px 0;">
+    <input id="jump-input" maxlength="2" placeholder="--" autocomplete="off" spellcheck="false">
+  </div>
+  <p style="font-size:11px;color:#aa88cc;margin-bottom:14px;">飛船將傳送至該空域中央，培育計數歸零。</p>
+  <div style="display:flex;gap:12px;justify-content:center;">
+    <button class="btn-purple" id="btn-jump-ok">🚀 穿越</button>
+    <button class="btn-cancel" id="btn-jump-cancel">取消</button>
+  </div>
+</div>
+
+<div id="lv-popup">
+  <p id="lv-msg">🌟 升級！等級 2</p>
+  <div class="sub" id="lv-sub">視野 +1 ｜ 能量上限 +10</div>
+</div>
+
+<div class="ov" id="wanted-ov"></div>
+<div class="modal" id="wanted-popup">
+  <h3>☠ 影盟通緝 啟動！</h3>
+  <p>暗影聯盟已將您列為頭號目標！<br>各空域將出現<b style="color:#ff44ff">巡航艦</b>追殺您。<br><br>
+  ⚠ 巡航艦特性：<br>
+  • 體型龐大，偵測範圍 20 格<br>
+  • 距離 10 格內每秒吸取能量 <b style="color:#ff4444">40 點</b><br>
+  • 血量 10 點，需雷射攻擊 10 次擊毀<br>
+  • 擊毀獲得：能量 +300，XP +10</p>
+  <button class="btn-wanted" id="btn-wanted-ok">⚡ 迎戰影盟！</button>
+</div>
+
+<div class="ov" id="nstar-ov"></div>
+<div class="modal" id="nstar-popup">
+  <h3>⚡ 中子星強磁場警告！</h3>
+  <p>飛船進入中子星影響範圍！強烈磁場將干擾儀器運作，<br>飛船將遭遇故障停頓數秒。建議立即撤離！</p>
+  <button class="btn-cancel" id="btn-nstar-ok">⚡ 確認</button>
+</div>
+<div class="ov" id="snova-ov"></div>
+<div class="modal" id="snova-popup">
+  <h3>✦ 超新星光芒護盾啟動！</h3>
+  <p>飛船吸收了超新星遺跡的能量！<br><b style="color:#ffdd00">超新星光芒護盾</b>已啟動，持續 60 秒。<br><br>
+  護盾效果：<br>
+  • 飛船完全無敵，不受能量吸取影響<br>
+  • 免疫黑洞引力、中子星故障、小行星帶減速</p>
+  <button style="background:#302000;border:2px solid #ffcc00;color:#ffee88;padding:9px 28px;border-radius:7px;cursor:pointer;font-family:'Courier New',monospace;font-size:14px;font-weight:bold;" id="btn-snova-ok">✦ 確認</button>
+</div>
+<div class="ov" id="merchant-ov"></div>
+<div class="modal" id="merchant-popup" style="background:#051a10;border:2px solid #006633;min-width:280px;box-shadow:0 0 40px rgba(0,150,80,0.25);">
+  <h3 style="color:#44ffaa;font-size:17px;margin-bottom:10px;">🚢 太空商船</h3>
+  <p style="color:#aaffcc;font-size:13px;margin-bottom:18px;line-height:1.6;">
+    神秘商人出現在您的視野中，低沉的聲音從通訊器傳來：<br>
+    <em style="color:#66ffcc;">「旅行者，需要補給嗎？」</em>
+  </p>
+  <div style="display:flex;gap:12px;justify-content:center;">
+    <button id="btn-merchant-trade" style="min-width:110px;padding:9px 14px;border-radius:8px;cursor:pointer;font-family:'Courier New',monospace;font-size:13px;font-weight:bold;border:2px solid #00cc66;background:#003320;color:#44ffaa;">💰 交易<span style="display:block;font-size:10px;font-weight:normal;margin-top:3px;opacity:0.85;">消耗 100 能量</span></button>
+    <button id="btn-merchant-leave" style="min-width:110px;padding:9px 14px;border-radius:8px;cursor:pointer;font-family:'Courier New',monospace;font-size:13px;font-weight:bold;border:2px solid #445566;background:#0a1a2a;color:#aaccdd;">↩ 離開</button>
+  </div>
+</div>
+
+<div class="ov" id="void-ov"></div>
+<div class="modal" id="void-popup">
+  <h3>⚠ 進入暗影聯盟大本營</h3>
+  <p>異空間座標鎖定完成。<br>
+  目標位置：<b style="color:#ff44ff">暗影聯盟大本營</b><br><br>
+  根據情報，此地有<b style="color:#ff4444">無數敵艦</b>的嚴密防守。<br>
+  影盟毀滅星艦坐鎮其中，戰力驚人。<br><br>
+  <span style="color:#ffcc00">⚠ 此行凶多吉少。是否準備好了？</span></p>
+  <div style="display:flex;gap:14px;justify-content:center;">
+    <button class="btn-red" id="btn-void-enter" onclick="enterVoidMap()">⚔ 出發！進入異空間</button>
+    <button class="btn-cancel" id="btn-void-cancel" onclick="closeVoidConfirm()">← 稍後再去</button>
+  </div>
+</div>
+
+<div id="dread-alert">⚠ 影盟毀滅星艦正在召喚！<br><span id="dread-cd" style="font-size:32px;color:#ff0000;">3</span></div>
+
+<script>
+// ══════════════════════════════════════════════
+// 常數
+// ══════════════════════════════════════════════
+const GRID=100, CELL=5, CS=500, BASE_EMAX=300;
+const STAR_R=5, SHIP_ALERT_R=5, PLANET_REGEN_R=3, BASE_VIEW=7;
+const LERP=0.18;
+const SEED_CHARS='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; 
+
+const TECHS=[
+  "量子護盾技術：敵艦吸能每秒減少3點",
+  "暗物質感應器：視野範圍額外+2格",
+  "恆星爐心：恆星充能速率提升至每秒30",
+  "行星網絡：培育行星補能提升至每秒3",
+  "慣性推進器：移動能量消耗降至0.5",
+  "電磁干擾器：敵艦偵測範圍縮小至3格",
+  "友軍頻道：友艦支援充能提升至每秒8",
+  "深空雷達：視野額外+3格",
+  "奈米修復艙：能量上限額外+50",
+  "星圖資料庫：恆星補能範圍+2格",
+];
+
+const PNAMES=['Alpha','Beta','Gamma','Delta','Epsilon','Zeta','Eta','Theta','Iota','Kappa',
+  'Lambda','Mu','Nu','Xi','Omicron','Pi','Rho','Sigma','Tau','Upsilon',
+  'Phi','Chi','Psi','Omega','Nova'];
+
+// ══════════════════════════════════════════════
+// 持久玩家狀態
+// ══════════════════════════════════════════════
+let pstate = {
+  level:1, xp:0, energy:BASE_EMAX,
+  techBonuses:{shieldDrain:0,starRegen:20,planetRegen:1,moveCost:1,
+    enemyR:5,friendRegen:5,extraView:0,emaxBonus:0,starRangeBonus:0},
+  discoveredTechs:[],
+  totalCultivated:0  
+};
+let emax=BASE_EMAX, viewR=BASE_VIEW;
+
+// ── 稱號系統（私下計數，不顯示進度）──
+let privateCultivateCount=0; // 私下培育計數（不重置）
+let privateKillCount=0;      // 私下擊殺計數（不重置）
+let titleHerder=false;       // 蒼穹牧星者
+let titleSlayer=false;       // 影盟剋星
+
+// ══════════════════════════════════════════════
+// 地圖狀態
+// ══════════════════════════════════════════════
+let canvas, ctx;
+let player={x:50,y:50};
+let explored=new Set();
+let stars=[], planets=[], ships=[], asteroids=[];
+let asteroidBelt=null, blackHole=null;
+let neutronStar=null;       // 中子星 {x,y,rot,range:50}
+let supernovaRemnant=null;  // 超新星遺跡 [{x,y,size,phase}]
+let comet=null;             // 彗星 {x,y,dx,dy,tail:[],phase}
+let nstarFaultTick=0;       // 中子星故障計時器（tick計數）
+let nstarFaulted=false;     // 是否正在故障停頓
+let nstarWarned=false;      // 是否已顯示中子星警告
+let snovaShield=false;      // 超新星護盾是否啟動
+let snovaShieldTick=0;      // 護盾剩餘tick數（60秒=3600）
+let nstarOpen=false, snovaOpen=false;
+let logs=[], tick=0;
+let regenSources={star:false,planet:false,friend:false,starDanger:false};
+let currentSeed='', currentPlanet=null;
+
+let pmOpen=false,tpOpen=false,expOpen=false,navOpen=false,deadOpen=false,jumpOpen=false,wantedOpen=false;
+function anyOpen(){return pmOpen||tpOpen||expOpen||navOpen||deadOpen||jumpOpen||wantedOpen||merchantOpen||nstarOpen||snovaOpen||voidOpen;}
+
+let navCooldown=false, pendingNavDir=null;
+let lastMoveTimestamp=0;
+
+// ── 新增：攻擊與影盟系統 ──
+let totalKills=0;          // 累計擊殺敵艦數
+let wantedTriggered=false; // 影盟通緝是否已觸發
+let cruisers=[];           // 巡航艦列表
+let laserCooldown=0;       // 雷射冷卻計時(tick)
+let laserBeams=[];         // 視覺光束列表 [{x1,y1,x2,y2,life,color}]
+let explosions=[];         // 爆炸動畫列表 [{x,y,life,maxLife,big}]
+
+// ── 異空間地圖碎片 ──
+let voidMapFragments=0;    // 已收集碎片數（最多3）
+let voidFragmentFound=false; // 是否已收集過第一片（用於顯示HUD）
+
+// ── 異空間地圖 ──
+let inVoidMap=false;          // 是否在異空間地圖中
+let voidCruisers=[];          // 異空間巡航艦
+let voidSpawnTimer=0;         // 異空間生成計時（秒）
+let voidSpawnCount=0;         // 已生成批次數（0~6，每10秒一批，60秒結束）
+let voidAllKilled=false;      // 巡航艦全滅
+let voidDreadnought=null;     // 毀滅星艦 {x,y,rx,ry,hp,maxHp}
+let voidDreadSpawned=false;   // 毀滅星艦是否已生成
+let voidDreadCountdown=false; // 是否正在倒數
+let voidPhase='spawning';     // 'spawning'|'fighting'|'dread'|'victory'
+let voidOpen=false;
+// ── 結局演出（在遊戲 canvas 上繪製） ──
+let endingActive=false;
+let endingStartTime=null;
+let endingExplosions=[];
+let endingDreadPx=250, endingDreadPy=250;
+
+// ── 太空商船 ──
+let merchantShip=null; // {x,y,rx,ry,interacted,turnedEnemy,chasing,moveTimer}
+let merchantOpen=false; // 商船互動視窗是否開啟
+
+// ══════════════════════════════════════════════
+// OffscreenCanvas 背景快取（效能優化）
+// ══════════════════════════════════════════════
+let bgCanvas=null, bgCtx=null, bgDirty=true;
+
+function invalidateBg(){ bgDirty=true; }
+
+function drawBgCache(){
+  if(!bgCtx) return;
+  // 步驟 1：地圖底色
+  const darkColor   = inVoidMap ? '#0a0018' : '#020710';
+  const exploredDim = inVoidMap ? '#0d0020' : '#070e1a';
+  const exploredLit = inVoidMap ? '#1a0035' : '#0d1f35';
+  const gridLine    = inVoidMap ? 'rgba(80,0,120,0.5)' : 'rgba(12,35,65,0.6)';
+  const vr2 = viewR * viewR;
+
+  // 先整塊填未探索底色
+  bgCtx.fillStyle = darkColor;
+  bgCtx.fillRect(0, 0, CS, CS);
+
+  // 分兩批畫探索過的格子（暗色 / 亮色），減少 fillStyle 切換
+  bgCtx.fillStyle = exploredDim;
+  for(const k of explored){
+    const n = k|0;
+    const gx = Math.floor(n/1000), gy = n%1000;
+    const dx = gx-player.x, dy = gy-player.y;
+    if(dx*dx+dy*dy > vr2)
+      bgCtx.fillRect(gx*CELL, gy*CELL, CELL, CELL);
+  }
+
+  bgCtx.fillStyle = exploredLit;
+  const litCells = [];
+  for(const k of explored){
+    const n = k|0;
+    const gx = Math.floor(n/1000), gy = n%1000;
+    const dx = gx-player.x, dy = gy-player.y;
+    if(dx*dx+dy*dy <= vr2){
+      bgCtx.fillRect(gx*CELL, gy*CELL, CELL, CELL);
+      litCells.push(gx, gy);
+    }
+  }
+
+  // 批次畫格線（一次 stroke call）
+  bgCtx.beginPath();
+  for(let i=0; i<litCells.length; i+=2){
+    bgCtx.rect(litCells[i]*CELL, litCells[i+1]*CELL, CELL, CELL);
+  }
+  bgCtx.strokeStyle = gridLine;
+  bgCtx.lineWidth = 0.25;
+  bgCtx.stroke();
+
+  // 步驟 5：迷霧覆蓋（探索過但不在當前視野的格子加暗霧）
+  const fogColor = inVoidMap ? '10,0,24,' : '2,7,16,';
+  for(const k of explored){
+    const n = k|0;
+    const gx = Math.floor(n/1000), gy = n%1000;
+    const dx = gx-player.x, dy = gy-player.y;
+    const d = Math.sqrt(dx*dx+dy*dy);
+    if(d > viewR){
+      const a = Math.min(0.92,(d-viewR)*0.3+0.6);
+      bgCtx.fillStyle = 'rgba('+fogColor+a+')';
+      bgCtx.fillRect(gx*CELL, gy*CELL, CELL, CELL);
+    }
+  }
+
+  bgDirty = false;
+}
+
+// ══════════════════════════════════════════════
+// 偽隨機數
+// ══════════════════════════════════════════════
+function seedHash(seed){
+  let h=0;
+  for(let i=0;i<seed.length;i++){h=Math.imul(31,h)+seed.charCodeAt(i)|0;}
+  return Math.abs(h);
+}
+
+function makeRng(seed){
+  let a=seedHash(seed);
+  return function(){
+    a|=0; a=a+0x6D2B79F5|0;
+    let t=Math.imul(a^a>>>15,1|a);
+    t=t+Math.imul(t^t>>>7,61|t)^t;
+    return ((t^t>>>14)>>>0)/4294967296;
+  };
+}
+
+function randomSeed(){
+  let s='';
+  for(let i=0;i<2;i++) s+=SEED_CHARS[Math.floor(Math.random()*SEED_CHARS.length)];
+  return s;
+}
+
+// ══════════════════════════════════════════════
+// 統計與地圖生成
+// ══════════════════════════════════════════════
+function recalcStats(){
+  viewR=BASE_VIEW+(pstate.level-1)+pstate.techBonuses.extraView;
+  emax=BASE_EMAX+(pstate.level-1)*10+pstate.techBonuses.emaxBonus;
+  pstate.energy=Math.min(pstate.energy,emax);
+}
+
+function generateMap(seed, spawnX, spawnY){
+  const rng=makeRng(seed);
+  stars=[]; planets=[]; ships=[]; asteroids=[];
+  asteroidBelt=null; blackHole=null;
+  neutronStar=null; supernovaRemnant=null; comet=null;
+  nstarFaultTick=0; nstarFaulted=false; nstarWarned=false;
+  explored=new Set();
+  currentSeed=seed;
+
+  const used=new Set();
+  const rndR=(a,b)=>a+Math.floor(rng()*(b-a+1));
+
+  // 新增物件邏輯：小行星帶與黑洞
+  const isL0 = /^[A-Z]$/.test(seed[0]);
+  const isL1 = /^[A-Z]$/.test(seed[1]);
+  const isN0 = /^[0-9]$/.test(seed[0]);
+  const isN1 = /^[0-9]$/.test(seed[1]);
+
+  if (isL0 && isL1) {
+    let cx = rndR(20, 80), cy = rndR(20, 80);
+    let r = rndR(10, 50);
+    asteroidBelt = { cx, cy, r };
+    let count = rndR(300, 400);
+    for(let i=0; i<count; i++){
+      let angle = rng() * Math.PI * 2;
+      let dist = rng() * r;
+      let ax = Math.round(cx + Math.cos(angle) * dist);
+      let ay = Math.round(cy + Math.sin(angle) * dist);
+      asteroids.push({x:ax, y:ay, size: 1 + rng()*1.5});
+    }
+  }
+
+  if ((isL0 && isN1) || (isN0 && isL1)) {
+    let bx = rndR(15, 85), by = rndR(15, 85);
+    while (Math.abs(bx - spawnX) + Math.abs(by - spawnY) < 15) {
+      bx = rndR(15, 85); by = rndR(15, 85);
+    }
+    blackHole = { x: bx, y: by, rot: 0 };
+  }
+
+  // 中子星：種子碼中包含英文N（N6、5N、NN等）
+  const hasN = seed[0]==='N' || seed[1]==='N';
+  if (hasN) {
+    let nx2 = rndR(15, 85), ny2 = rndR(15, 85);
+    let att2=0;
+    while(Math.abs(nx2-spawnX)+Math.abs(ny2-spawnY)<15 && att2<200){
+      nx2=rndR(15,85); ny2=rndR(15,85); att2++;
+    }
+    neutronStar = { x: nx2, y: ny2, rot: 0 };
+    log('📡 偵測到中子星於此空域，保持距離！');
+  }
+
+  // 超新星遺跡：兩碼相同英文或相同數字（MM, 77等）
+  const bothSame = seed[0]===seed[1];
+  if (bothSame) {
+    let sx = rndR(10, 80), sy = rndR(10, 80);
+    let relics = [];
+    const cnt = 10 + Math.floor(rng()*21); // 10~30個光芒
+    for(let i=0;i<cnt;i++){
+      relics.push({
+        x: sx + Math.floor((rng()-0.5)*30),
+        y: sy + Math.floor((rng()-0.5)*30),
+        size: 1 + rng()*3,
+        phase: rng()*Math.PI*2,
+        speed: 0.03+rng()*0.07
+      });
+    }
+    supernovaRemnant = relics;
+    log('📡 偵測到超新星遺跡於此空域，接近可獲得護盾！');
+  }
+
+  // 彗星：1/5機率出現
+  if(rng()<0.2){
+    const cx2 = rndR(5,90), cy2 = rndR(5,90);
+    const angle2 = rng()*Math.PI*2;
+    const speed2 = 0.3 + rng()*0.2;
+    comet = {
+      x: cx2, y: cy2,
+      dx: Math.cos(angle2)*speed2,
+      dy: Math.sin(angle2)*speed2,
+      tail: [],
+      phase: 0
+    };
+    log('☄ 偵測到彗星飛越此空域！');
+  }
+
+  // 5 恆星
+  let attempts=0;
+  while(stars.length<5&&attempts<5000){
+    attempts++;
+    let x=rndR(8,91),y=rndR(8,91),k=x+','+y;
+    if(!used.has(k)&&stars.every(s=>Math.abs(s.x-x)+Math.abs(s.y-y)>=18)){
+      stars.push({x,y,rot:rng()*Math.PI*2});
+      used.add(k);
+    }
+  }
+
+  // 25 行星
+  attempts=0;
+  while(planets.length<25&&attempts<10000){
+    attempts++;
+    let x=rndR(3,96),y=rndR(3,96),k=x+','+y;
+    if(!used.has(k)&&
+       stars.every(s=>Math.abs(s.x-x)+Math.abs(s.y-y)>=4)&&
+       planets.every(p=>Math.abs(p.x-x)+Math.abs(p.y-y)>=5)){
+      planets.push({x,y,name:PNAMES[planets.length%PNAMES.length],state:'virgin'});
+      used.add(k);
+    }
+  }
+
+  // 10 友艦 + 10 敵艦
+  for(let i=0;i<20;i++){
+    let x,y,k,att=0;
+    do{x=rndR(2,97);y=rndR(2,97);k=x+','+y;att++;}
+    while((used.has(k)||Math.abs(x-spawnX)+Math.abs(y-spawnY)<15)&&att<500);
+    ships.push({x,y,rx:x,ry:y,type:i<10?'friendly':'enemy',
+      moveTimer:Math.floor(rng()*40),chasing:false,supporting:false});
+    used.add(k);
+  }
+
+  player.x=spawnX; player.y=spawnY;
+  markExplored();
+  document.getElementById('seedv').textContent=seed;
+  navCooldown=true;
+  setTimeout(()=>{navCooldown=false;},800);
+
+  // 1/5 機率生成太空商船
+  merchantShip=null;
+  if(rng()<0.2){
+    let mx,my,matt=0;
+    do{mx=rndR(5,94);my=rndR(5,94);matt++;}
+    while((used.has(mx+','+my)||Math.abs(mx-spawnX)+Math.abs(my-spawnY)<15)&&matt<300);
+    merchantShip={x:mx,y:my,rx:mx,ry:my,interacted:false,turnedEnemy:false,chasing:false,moveTimer:30};
+    log('📡 偵測到太空商船出沒於此空域...');
+  }
+
+  // 若影盟通緝已觸發，在新空域生成巡航艦
+  if(wantedTriggered) spawnCruiser();
+}
+
+// ══════════════════════════════════════════════
+// 工具與視窗
+// ══════════════════════════════════════════════
+function dist(a,b){return Math.abs(a.x-b.x)+Math.abs(a.y-b.y);}
+function key(x,y){return x*1000+y;}   // 數字 key，避免字串 GC 壓力（GRID=100，不會碰撞）
+function lerp(a,b,t){return a+(b-a)*t;}
+
+// ── 雷射炮系統 ──
+function getLaserLevel(){
+  if(pstate.level>=36) return 5; // 神級
+  if(pstate.level>=18) return 4; // 龍級
+  if(pstate.level>=9)  return 3;
+  if(pstate.level>=6)  return 2;
+  if(pstate.level>=3)  return 1;
+  return 0;
+}
+function getLaserRange(){
+  const ll=getLaserLevel();
+  if(ll===5) return 30; // 神級：30格
+  if(ll===4) return 20; // 龍級：20格
+  if(ll===3) return 10;
+  if(ll===2) return 5;
+  if(ll===1) return 2;
+  return 0;
+}
+function getLaserName(){
+  const ll=getLaserLevel();
+  if(ll===5) return '神級雷射炮';
+  if(ll===4) return '龍級雷射炮';
+  if(ll===3) return '高級雷射炮';
+  if(ll===2) return '中級雷射炮';
+  if(ll===1) return '初級雷射炮';
+  return '--';
+}
+function getLaserShotsPerSec(){
+  const ll=getLaserLevel();
+  if(ll===5) return 10; // 神級：同時10目標
+  if(ll===4) return 3;  // 龍級：同時3目標
+  return 1;
+}
+
+function spawnCruiser(){
+  // 巡航艦生成為事件觸發（非地圖生成期），使用 Math.random() 是預期行為
+  let cx,cy,att=0;
+  do{
+    cx=5+Math.floor(Math.random()*90);
+    cy=5+Math.floor(Math.random()*90);
+    att++;
+  }while(dist({x:cx,y:cy},player)<25&&att<200);
+  cruisers.push({x:cx,y:cy,rx:cx,ry:cy,hp:10,maxHp:10,hidden:true});
+  log('☠ 影盟巡航艦已在空域部署！');
+}
+
+function openVoidConfirm(){
+  voidOpen=true;
+  document.getElementById('void-ov').style.display='block';
+  document.getElementById('void-popup').style.display='block';
+}
+function closeVoidConfirm(){
+  voidOpen=false;
+  document.getElementById('void-ov').style.display='none';
+  document.getElementById('void-popup').style.display='none';
+}
+
+function enterVoidMap(){
+  closeVoidConfirm();
+  inVoidMap=true;
+  voidCruisers=[];
+  voidSpawnTimer=0;
+  voidSpawnCount=0;
+  voidAllKilled=false;
+  voidDreadnought=null;
+  voidDreadSpawned=false;
+  voidDreadCountdown=false;
+  voidPhase='spawning';
+  invalidateBg();
+
+  // 生成異空間地圖（空白，暗紫色背景，種子 "??"）
+  stars=[]; planets=[]; ships=[]; asteroids=[];
+  asteroidBelt=null; blackHole=null; neutronStar=null;
+  supernovaRemnant=null; comet=null;
+  nstarFaultTick=0; nstarFaulted=false; nstarWarned=false;
+  explored=new Set();
+  cruisers=[];
+  merchantShip=null;
+  currentSeed='??';
+  player.x=50; player.y=50;
+  markExplored();
+  document.getElementById('seedv').textContent='??';
+  document.getElementById('vfb').style.display='none';
+  document.getElementById('btn-enter-void').style.display='none';
+  log('🌀 進入異空間！暗影聯盟大本營——');
+  log('☠ 敵艦正在湧入...');
+  updateHUD(); updateRegenSources(); updateStatus();
+  // 立刻生成第一波
+  spawnVoidWave();
+}
+
+// 異空間各波次設定：[敵艦數, 巡航艦數]
+const VOID_WAVES=[
+  [50, 0],  // 第1波 0秒
+  [50, 3],  // 第2波 10秒
+  [50, 5],  // 第3波 20秒
+  [50,10],  // 第4波 30秒
+  [ 0,20],  // 第5波 40秒
+  [ 0,25],  // 第6波 50秒
+  [ 0,30],  // 第7波 60秒
+];
+
+function spawnVoidWave(){
+  const waveIdx=voidSpawnCount;
+  if(waveIdx>=VOID_WAVES.length) return;
+  const [numShips,numCruisers]=VOID_WAVES[waveIdx];
+  for(let i=0;i<numShips;i++){
+    let cx,cy,att=0;
+    do{
+      cx=2+Math.floor(Math.random()*96);
+      cy=2+Math.floor(Math.random()*96);
+      att++;
+    }while(Math.abs(cx-player.x)+Math.abs(cy-player.y)<15&&att<300);
+    ships.push({type:'enemy',x:cx,y:cy,rx:cx,ry:cy,chasing:false,moveTimer:10});
+  }
+  for(let i=0;i<numCruisers;i++){
+    let cx,cy,att=0;
+    do{
+      cx=2+Math.floor(Math.random()*96);
+      cy=2+Math.floor(Math.random()*96);
+      att++;
+    }while(Math.abs(cx-player.x)+Math.abs(cy-player.y)<15&&att<300);
+    voidCruisers.push({x:cx,y:cy,rx:cx,ry:cy,hp:10,maxHp:10,hidden:false});
+  }
+  voidSpawnCount++;
+  const parts=[];
+  if(numShips>0) parts.push('敵艦×'+numShips);
+  if(numCruisers>0) parts.push('巡航艦×'+numCruisers);
+  log('☠ 第'+voidSpawnCount+'波湧入：'+parts.join(' + ')+'！');
+  if(voidSpawnCount>=VOID_WAVES.length) log('⚠ 最後一波！消滅所有敵艦！');
+}
+
+function spawnDreadnought(){
+  let dx,dy,att=0;
+  do{
+    dx=5+Math.floor(Math.random()*90);
+    dy=5+Math.floor(Math.random()*90);
+    att++;
+  }while(Math.abs(dx-player.x)+Math.abs(dy-player.y)<20&&att<300);
+  voidDreadnought={x:dx,y:dy,rx:dx,ry:dy,hp:50,maxHp:50};
+  voidDreadSpawned=true;
+  voidPhase='dread';
+  log('💀 毀滅星艦降臨！血量50，全力迎擊！');
+}
+
+function triggerVoidVictory(){
+  voidPhase='victory';
+  log('✨ 毀滅星艦已消滅！深空恢復和平！');
+  startEndingSequence();
+}
+
+function startEndingSequence(){
+  // 記錄毀滅星艦最後位置（遊戲 canvas 座標）
+  endingDreadPx = (voidDreadnought ? voidDreadnought.rx : 50)*CELL + CELL/2;
+  endingDreadPy = (voidDreadnought ? voidDreadnought.ry : 50)*CELL + CELL/2;
+  // 預生成爆炸點（在 500x500 地圖範圍內散佈）
+  endingExplosions = [];
+  for(let i=0;i<25;i++){
+    endingExplosions.push({
+      x: Math.max(20, Math.min(480, endingDreadPx + (Math.random()-0.5)*280)),
+      y: Math.max(20, Math.min(480, endingDreadPy + (Math.random()-0.5)*280)),
+      delay: Math.random()*2000,
+      r: 15+Math.random()*45,
+      born: false, bornAt: 0
+    });
+  }
+  endingStartTime = performance.now();
+  endingActive = true;
+}
+
+function triggerDreadCountdown(){
+  if(voidDreadCountdown) return;
+  voidDreadCountdown=true;
+  voidPhase='counting';
+  const alert=document.getElementById('dread-alert');
+  const cd=document.getElementById('dread-cd');
+  alert.style.display='block';
+  log('⚠ 系統警示：影盟毀滅星艦正在召喚！');
+  let count=3;
+  cd.textContent=count;
+  const iv=setInterval(()=>{
+    count--;
+    if(count<=0){
+      clearInterval(iv);
+      alert.style.display='none';
+      spawnDreadnought();
+    } else {
+      cd.textContent=count;
+    }
+  },1000);
+}
+
+function triggerWanted(){
+  wantedTriggered=true;
+  wantedOpen=true;
+  document.getElementById('wanted-ov').style.display='block';
+  document.getElementById('wanted-popup').style.display='block';
+  spawnCruiser();
+  log('☠ 影盟通緝已啟動！巡航艦出現！');
+}
+
+function doLaserAttack(){
+  const ll=getLaserLevel();
+  if(ll===0) return;
+  const range=getLaserRange();
+  const shots=getLaserShotsPerSec();
+
+  let shotsLeft=shots;
+
+  // 異空間模式：攻擊毀滅星艦
+  if(inVoidMap && voidDreadnought && voidPhase==='dread'){
+    if(dist(voidDreadnought,player)<=range && shotsLeft>0){
+      const hits=Math.min(shotsLeft,shots);
+      voidDreadnought.hp-=hits; shotsLeft-=hits;
+      for(let h=0;h<hits;h++)
+        laserBeams.push({x1:player.x,y1:player.y,x2:voidDreadnought.x,y2:voidDreadnought.y,life:8,color:'#ff0088'});
+      if(voidDreadnought.hp<=0){
+        triggerVoidVictory();
+        return;
+      }
+    }
+  }
+
+  // 異空間模式：攻擊巡航艦 + 一般敵艦
+  if(inVoidMap && voidPhase==='spawning'){
+    // 攻擊巡航艦
+    for(let i=voidCruisers.length-1;i>=0&&shotsLeft>0;i--){
+      const c=voidCruisers[i];
+      if(dist(c,player)<=range){
+        const hits=Math.min(shotsLeft,shots);
+        c.hp-=hits; shotsLeft-=hits;
+        for(let h=0;h<hits;h++)
+          laserBeams.push({x1:player.x,y1:player.y,x2:c.x,y2:c.y,life:8,color:'#ff44ff'});
+        if(c.hp<=0){
+          explosions.push({x:c.x,y:c.y,life:20,maxLife:20,big:true});
+          voidCruisers.splice(i,1);
+          pstate.energy=Math.min(emax,pstate.energy+300);
+          pstate.xp+=10; checkXP();
+          log('💥 巡航艦摧毀！能量 +300，XP +10');
+          updateHUD();
+        }
+      }
+    }
+    // 攻擊一般敵艦
+    for(let i=ships.length-1;i>=0&&shotsLeft>0;i--){
+      const s=ships[i];
+      if(s.type!=='enemy') continue;
+      if(dist(s,player)<=range){
+        laserBeams.push({x1:player.x,y1:player.y,x2:s.x,y2:s.y,life:8,color:'#00ffff'});
+        explosions.push({x:s.x,y:s.y,life:14,maxLife:14,big:false});
+        ships.splice(i,1);
+        totalKills++; privateKillCount++; shotsLeft--;
+        document.getElementById('killv').textContent=totalKills;
+        if(Math.random()<0.5){ pstate.xp+=5; checkXP(); log('🔫 擊毀敵艦！XP +5'); }
+        else { log('🔫 擊毀敵艦！'); }
+        updateHUD(); checkTitles();
+      }
+    }
+    // 全滅判定（巡航艦+一般敵艦都清光才算）
+    const voidEnemyShipsLeft=ships.filter(s=>s.type==='enemy').length;
+    if(!voidAllKilled && voidCruisers.length===0 && voidEnemyShipsLeft===0 && voidSpawnCount>=VOID_WAVES.length){
+      voidAllKilled=true;
+      triggerDreadCountdown();
+    }
+    return;
+  }
+
+  // 普通模式：優先攻擊巡航艦
+  for(let i=cruisers.length-1;i>=0&&shotsLeft>0;i--){
+    const c=cruisers[i];
+    if(dist(c,player)<=range){
+      const hits=Math.min(shotsLeft, shots);
+      c.hp-=hits; shotsLeft-=hits;
+      for(let h=0;h<hits;h++)
+        laserBeams.push({x1:player.x,y1:player.y,x2:c.x,y2:c.y,life:8,color:'#ff44ff'});
+      if(c.hp<=0){
+        explosions.push({x:c.x,y:c.y,life:20,maxLife:20,big:true});
+        cruisers.splice(i,1);
+        pstate.energy=Math.min(emax,pstate.energy+300);
+        pstate.xp+=10; checkXP();
+        if(Math.random()<0.2 && voidMapFragments<3){
+          voidMapFragments++;
+          voidFragmentFound=true;
+          log('💥 巡航艦摧毀！能量 +300，XP +10');
+          log('🌀 獲得異空間地圖碎片！（'+voidMapFragments+'/3）');
+          if(voidMapFragments>=3) log('✅ 異空間地圖碎片已收集完畢！可進入異空間！');
+        } else {
+          log('💥 巡航艦摧毀！能量 +300，XP +10');
+        }
+        updateHUD();
+      }
+    }
+  }
+  if(shotsLeft<=0) return;
+
+  // 攻擊叛變商船
+  if(merchantShip && merchantShip.turnedEnemy && dist(merchantShip,player)<=range && shotsLeft>0){
+    laserBeams.push({x1:player.x,y1:player.y,x2:merchantShip.x,y2:merchantShip.y,life:8,color:'#00ffff'});
+    explosions.push({x:merchantShip.x,y:merchantShip.y,life:14,maxLife:14,big:false});
+    merchantShip=null;
+    totalKills++; privateKillCount++;
+    shotsLeft--;
+    document.getElementById('killv').textContent=totalKills;
+    log('🔫 擊毀叛變商船！');
+    updateHUD(); checkTitles();
+  }
+  if(shotsLeft<=0) return;
+
+  // 攻擊普通敵艦
+  for(let i=ships.length-1;i>=0&&shotsLeft>0;i--){
+    const s=ships[i];
+    if(s.type!=='enemy') continue;
+    if(dist(s,player)<=range){
+      laserBeams.push({x1:player.x,y1:player.y,x2:s.x,y2:s.y,life:8,color:'#00ffff'});
+      explosions.push({x:s.x,y:s.y,life:14,maxLife:14,big:false});
+      ships.splice(i,1);
+      totalKills++; privateKillCount++;
+      shotsLeft--;
+      document.getElementById('killv').textContent=totalKills;
+      if(Math.random()<0.5){ pstate.xp+=5; checkXP(); log('🔫 擊毀敵艦！XP +5'); }
+      else { log('🔫 擊毀敵艦！'); }
+      updateHUD(); checkTitles();
+      if(!wantedTriggered && totalKills>=13) triggerWanted();
+    }
+  }
+}
+
+function showModal(id,ovId,show){
+  document.getElementById(ovId).style.display=show?'block':'none';
+  document.getElementById(id).style.display=show?'block':'none';
+}
+function showPm(s){pmOpen=s;showModal('pm','pm-ov',s);}
+function showTp(s){tpOpen=s;showModal('tech-popup','tp-ov',s);}
+function showExp(s){expOpen=s;showModal('exp-popup','exp-ov',s);}
+function showNav(s){navOpen=s;showModal('nav-popup','nav-ov',s);}
+function showDead(s){deadOpen=s;showModal('dead-popup','dead-ov',s);}
+function showJump(s){jumpOpen=s;showModal('jump-popup','jump-ov',s);}
+function closePlanet(){showPm(false);currentPlanet=null;}
+function closeTech(){showTp(false);updateTechList();}
+
+// ══════════════════════════════════════════════
+// 探索標記與狀態
+// ══════════════════════════════════════════════
+function markExplored(){
+  const vr=viewR;
+  const vr2=vr*vr;
+  for(let dx=-vr;dx<=vr;dx++)for(let dy=-vr;dy<=vr;dy++){
+    let nx=player.x+dx,ny=player.y+dy;
+    if(nx>=0&&nx<GRID&&ny>=0&&ny<GRID&&dx*dx+dy*dy<=vr2)
+      explored.add(key(nx,ny));
+  }
+  document.getElementById('ec').textContent=explored.size;
+  invalidateBg();
+}
+
+function regenTick(){
+  if(deadOpen) return;
+  const tb=pstate.techBonuses;
+
+  // 超新星護盾倒數（無論普通/異空間模式都需要計時）
+  if(snovaShield){
+    snovaShieldTick--;
+    if(snovaShieldTick<=0){
+      snovaShield=false;
+      log('🛡 超新星光芒護盾消失！飛船解除無敵。');
+    }
+  }
+
+  // 異空間模式：生成計時與毀滅星艦吸能
+  if(inVoidMap){
+    // 生成波次（每10秒一次，共7波=0~60秒）
+    if(voidPhase==='spawning' && voidSpawnCount<VOID_WAVES.length){
+      voidSpawnTimer++;
+      if(voidSpawnTimer>=10){
+        voidSpawnTimer=0;
+        spawnVoidWave();
+      }
+    }
+    // 檢查是否所有敵艦與巡航艦都消滅了
+    const voidEnemyCount=ships.filter(s=>s.type==='enemy').length;
+    if(voidPhase==='spawning' && voidSpawnCount>=VOID_WAVES.length && voidCruisers.length===0 && voidEnemyCount===0 && !voidAllKilled){
+      voidAllKilled=true;
+      triggerDreadCountdown();
+    }
+    // 毀滅星艦吸能（40格內每秒-300，護盾免疫）
+    if(voidDreadnought && voidPhase==='dread' && !snovaShield){
+      if(dist(voidDreadnought,player)<=40){
+        pstate.energy=Math.max(0,pstate.energy-300);
+        log('💀 毀滅星艦吸能 -300！');
+        if(pstate.energy<=0){ triggerDeath('巡航艦能量耗盡'); return; }
+      }
+    }
+    // 異空間巡航艦吸能（10格內每秒-40，護盾免疫）
+    if(!snovaShield){
+      for(let i=0;i<voidCruisers.length;i++){
+        const c=voidCruisers[i];
+        if(dist(c,player)<=10){
+          pstate.energy=Math.max(0,pstate.energy-40);
+          if(pstate.energy<=0){ triggerDeath('巡航艦能量耗盡'); return; }
+        }
+      }
+    }
+    if(getLaserLevel()>0) doLaserAttack();
+    updateHUD();
+    return;
+  }
+
+  if(regenSources.star&&pstate.energy<emax)
+    pstate.energy=Math.min(emax,pstate.energy+tb.starRegen);
+  if(regenSources.planet&&pstate.energy<emax)
+    pstate.energy=Math.min(emax,pstate.energy+tb.planetRegen);
+  if(regenSources.friend&&pstate.energy<emax)
+    pstate.energy=Math.min(emax,pstate.energy+tb.friendRegen);
+  // 蒼穹牧星者被動：固定 +100/秒
+  if(titleHerder&&pstate.energy<emax)
+    pstate.energy=Math.min(emax,pstate.energy+100);
+
+  if(regenSources.starDanger){
+    pstate.energy=Math.max(0,pstate.energy-50);
+    log('🔥 恆星輻射灼傷 -50！');
+    if(pstate.energy<=0){ triggerDeath('恆星輻射'); return; }
+  }
+
+  const chasingCount=ships.filter(s=>s.type==='enemy'&&s.chasing&&dist(s,player)<=3).length;
+  if(chasingCount>0){
+    const drain=chasingCount*(Math.max(1,10-tb.shieldDrain));
+    pstate.energy=Math.max(0,pstate.energy-drain);
+    log('⚡ '+chasingCount+'艘敵艦吸取能量 -'+drain);
+    if(pstate.energy<=0){ triggerDeath('敵艦能量耗盡'); return; }
+  }
+
+  // 巡航艦吸能（距離10格內）
+  for(let i=0;i<cruisers.length;i++){
+    const c=cruisers[i];
+    if(dist(c,player)<=10){
+      pstate.energy=Math.max(0,pstate.energy-40);
+      log('☠ 巡航艦吸取能量 -40！');
+      if(pstate.energy<=0){ triggerDeath('巡航艦能量耗盡'); return; }
+    }
+  }
+
+  // 叛變商船吸能（同普通敵艦）
+  if(merchantShip && merchantShip.turnedEnemy && merchantShip.chasing && dist(merchantShip,player)<=3){
+    const drain=Math.max(1,10-pstate.techBonuses.shieldDrain);
+    pstate.energy=Math.max(0,pstate.energy-drain);
+    log('🔴 叛變商船吸取能量 -'+drain);
+    if(pstate.energy<=0){ triggerDeath('敵艦能量耗盡'); return; }
+  }
+
+  // 雷射炮每秒自動攻擊
+  if(getLaserLevel()>0){
+    doLaserAttack();
+  }
+
+  updateHUD();
+}
+
+// ══════════════════════════════════════════════
+// 移動系統 (含小行星減速控制)
+// ══════════════════════════════════════════════
+function throttleMove() {
+  // 中子星故障期間無法移動（護盾免疫）
+  if(nstarFaulted && !snovaShield) return false;
+  let now = Date.now();
+  let inAsteroid = false;
+  // 護盾免疫小行星帶減速
+  if (asteroidBelt && !snovaShield) {
+    let dx = player.x - asteroidBelt.cx;
+    let dy = player.y - asteroidBelt.cy;
+    if (Math.sqrt(dx*dx + dy*dy) <= asteroidBelt.r) inAsteroid = true;
+  }
+  let delay = inAsteroid ? 120 : 0; 
+  if (now - lastMoveTimestamp < delay) return false;
+  lastMoveTimestamp = now;
+  return true;
+}
+
+function movePlayer(nx,ny){
+  if(anyOpen()) return;
+  if(nx<0||nx>=GRID||ny<0||ny>=GRID) return;
+  if(pstate.energy<=0){log('⚠ 能量耗盡！');return;}
+
+  if(!navCooldown && !inVoidMap){
+    let hitBoundary=false, dir='';
+    if(nx<=0)      {hitBoundary=true;dir='left';}
+    else if(nx>=99){hitBoundary=true;dir='right';}
+    else if(ny<=0) {hitBoundary=true;dir='top';}
+    else if(ny>=99){hitBoundary=true;dir='bottom';}
+    if(hitBoundary){
+      pendingNavDir={dir, fromX:player.x, fromY:player.y};
+      const dirName={left:'左',right:'右',top:'上',bottom:'下'}[dir];
+      document.getElementById('nav-desc').textContent=
+        '偵測到'+dirName+'方空域邊界。是否進入鄰近空域探索？';
+      showNav(true);
+      return;
+    }
+  }
+
+  player.x=nx; player.y=ny;
+  pstate.energy=Math.max(0,pstate.energy-pstate.techBonuses.moveCost);
+  markExplored();
+  updateHUD();
+  updateRegenSources();
+  updateStatus();
+  tryOpenPlanet();
+  tryOpenMerchant();
+}
+
+function tryOpenPlanet(){
+  if(anyOpen()) return;
+  const p=planets.find(p=>p.x===player.x&&p.y===player.y&&p.state==='virgin');
+  if(p) openPlanet(p);
+}
+
+function tryOpenMerchant(){
+  if(anyOpen()) return;
+  if(!merchantShip || merchantShip.interacted || merchantShip.turnedEnemy) return;
+  if(dist(merchantShip,player)<=2){
+    merchantOpen=true;
+    document.getElementById('merchant-ov').style.display='block';
+    document.getElementById('merchant-popup').style.display='block';
+    log('📡 太空商船靠近，發出通訊...');
+  }
+}
+
+function doNavigate(){
+  const {dir,fromX,fromY}=pendingNavDir;
+  const newSeed=randomSeed();
+  let nx=fromX, ny=fromY;
+  if(dir==='left')   {nx=98; ny=fromY;}
+  else if(dir==='right'){nx=1;  ny=fromY;}
+  else if(dir==='top')  {nx=fromX; ny=98;}
+  else if(dir==='bottom'){nx=fromX; ny=1;}
+  showNav(false);
+  generateMap(newSeed,nx,ny);
+  log('🌌 進入新空域 '+newSeed);
+  updateHUD();
+  updateRegenSources();
+  updateStatus();
+}
+
+// ══════════════════════════════════════════════
+// 狀態與艦隊更新
+// ══════════════════════════════════════════════
+function updateRegenSources(){
+  const tb=pstate.techBonuses;
+  const starR=STAR_R+tb.starRangeBonus;
+  regenSources.star   =stars.some(s=>dist(s,player)<=starR);
+  regenSources.planet =planets.some(p=>p.state==='cultivated'&&dist(p,player)<=PLANET_REGEN_R);
+  regenSources.friend =ships.some(s=>s.type==='friendly'&&dist(s,player)<=SHIP_ALERT_R)&&pstate.energy<emax*0.5;
+  regenSources.starDanger=stars.some(s=>dist(s,player)<=1);
+}
+
+function updateStatus(){
+  const hasEnemy =ships.some(s=>s.type==='enemy'&&s.chasing&&dist(s,player)<=pstate.techBonuses.enemyR);
+  const hasFriend=ships.some(s=>s.type==='friendly'&&s.supporting);
+  document.getElementById('wb').style.display=hasEnemy?'inline-block':'none';
+  document.getElementById('fb').style.display=hasFriend?'inline-block':'none';
+  document.getElementById('hb').style.display=regenSources.starDanger?'inline-block':'none';
+  
+  let msgs=[];
+  if(regenSources.star&&!regenSources.starDanger) msgs.push('恆星充能 +'+pstate.techBonuses.starRegen+'/s');
+  if(regenSources.starDanger) msgs.push('⚠ 恆星輻射 -50/s');
+  if(regenSources.planet) msgs.push('培育行星補能');
+  if(hasFriend)  msgs.push('友艦支援');
+  if(hasEnemy)   msgs.push('敵艦追擊！');
+  
+  // 黑洞警告
+  if (blackHole) {
+    let dx = Math.abs(player.x - blackHole.x);
+    let dy = Math.abs(player.y - blackHole.y);
+    if (dx <= 20 && dy <= 20) msgs.push('⚠ 致命引力拖曳中');
+  }
+
+  // 巡航艦警告
+  const nearCruiser=cruisers.some(c=>dist(c,player)<=10);
+  if(nearCruiser) msgs.push('☠ 影盟巡航艦吸能中！');
+
+  // 異空間特殊狀態
+  if(inVoidMap){
+    if(voidPhase==='spawning'){ const ve=ships.filter(s=>s.type==='enemy').length; msgs.push('⚔ 異空間：波次 '+voidSpawnCount+'/'+VOID_WAVES.length+' | 敵艦 '+ve+' 巡航 '+voidCruisers.length); }
+    if(voidPhase==='counting') msgs.push('⚠ 毀滅星艦召喚中...');
+    if(voidPhase==='dread' && voidDreadnought) msgs.push('💀 毀滅星艦 HP:'+voidDreadnought.hp+'/50');
+  }
+
+  // 中子星警告
+  if(neutronStar && dist(neutronStar,player)<=25 && !snovaShield) msgs.push('⚡ 中子星磁場干擾！');
+
+  // 超新星護盾
+  if(snovaShield) msgs.push('✦ 超新星護盾 '+snovaShieldTick+'s');
+
+  if(pstate.energy===0) msgs.push('⚠ 能量耗盡');
+  document.getElementById('sm').textContent=msgs.length?msgs.join(' | '):'在宇宙中漂移...';
+}
+
+function moveShips(){
+  const er=pstate.techBonuses.enemyR;
+  ships.forEach(s=>{
+    if(s.type==='enemy'){
+      const d=dist(s,player);
+      if(explored.has(key(s.x,s.y))&&d<=er){
+        if(!s.chasing){s.chasing=true;log('🔴 敵艦開始追擊！');}
+        if(d>2){
+          let nx=s.x+(Math.random()<0.65?Math.sign(player.x-s.x):(-1+Math.floor(Math.random()*3)));
+          let ny=s.y+(Math.random()<0.65?Math.sign(player.y-s.y):(-1+Math.floor(Math.random()*3)));
+          // 確保不會靠近到2格以內
+          const ndx=nx-player.x, ndy=ny-player.y;
+          const nd=Math.sqrt(ndx*ndx+ndy*ndy);
+          if(nd>=2 && nx>=0&&nx<GRID&&ny>=0&&ny<GRID){s.x=nx;s.y=ny;}
+        }
+      } else {
+        if(s.chasing){s.chasing=false;log('🟡 成功脫離敵艦！');}
+        s.moveTimer--;
+        if(s.moveTimer<=0){
+          s.moveTimer=20+Math.floor(Math.random()*36);
+          let nx=s.x+(-3+Math.floor(Math.random()*7));
+          let ny=s.y+(-3+Math.floor(Math.random()*7));
+          if(nx>=0&&nx<GRID&&ny>=0&&ny<GRID){s.x=nx;s.y=ny;}
+        }
+      }
+    } else {
+      const d=dist(s,player);
+      if(d<=SHIP_ALERT_R&&pstate.energy<emax*0.5){
+        s.supporting=true;
+        if(d>2){
+          let nx=s.x+Math.sign(player.x-s.x);
+          let ny=s.y+Math.sign(player.y-s.y);
+          if(nx>=0&&nx<GRID&&ny>=0&&ny<GRID){s.x=nx;s.y=ny;}
+        }
+      } else {
+        s.supporting=false;
+        s.moveTimer--;
+        if(s.moveTimer<=0){
+          s.moveTimer=20+Math.floor(Math.random()*36);
+          let nx=s.x+(-3+Math.floor(Math.random()*7));
+          let ny=s.y+(-3+Math.floor(Math.random()*7));
+          if(nx>=0&&nx<GRID&&ny>=0&&ny<GRID){s.x=nx;s.y=ny;}
+        }
+      }
+    }
+  });
+  // 巡航艦移動（速度為一般敵艦3倍，偵測範圍20格）
+  cruisers.forEach(c=>{
+    const d=dist(c,player);
+    // 巡航艦進入已探索格時揭示（取消隱藏）
+    if(c.hidden && explored.has(key(c.x,c.y))) c.hidden=false;
+    if(d<=20){
+      // 一般敵艦 chasing 時每次 moveShips 都移1格，巡航艦速度3倍 → 每次移3格
+      for(let step=0;step<3;step++){
+        let nx=c.x+Math.sign(player.x-c.x);
+        let ny=c.y+Math.sign(player.y-c.y);
+        if(Math.random()<0.5) nx=c.x; // 有時只移動一個方向
+        else ny=c.y;
+        if(nx>=0&&nx<GRID&&ny>=0&&ny<GRID){c.x=nx;c.y=ny;}
+        if(!c.hidden && explored.has(key(c.x,c.y))) c.hidden=false;
+      }
+    }
+  });
+
+  // 異空間巡航艦移動（追擊玩家）
+  voidCruisers.forEach(c=>{
+    const d=dist(c,player);
+    if(d<=50){
+      for(let step=0;step<2;step++){
+        let nx=c.x+Math.sign(player.x-c.x);
+        let ny=c.y+Math.sign(player.y-c.y);
+        if(Math.random()<0.5) nx=c.x;
+        else ny=c.y;
+        if(nx>=0&&nx<GRID&&ny>=0&&ny<GRID){c.x=nx;c.y=ny;}
+      }
+    }
+  });
+
+  // 毀滅星艦移動（緩慢追擊）
+  if(voidDreadnought && voidPhase==='dread'){
+    const d=voidDreadnought;
+    if(dist(d,player)<=50){
+      let nx=d.x+Math.sign(player.x-d.x);
+      let ny=d.y+Math.sign(player.y-d.y);
+      if(Math.random()<0.5) nx=d.x; else ny=d.y;
+      if(nx>=0&&nx<GRID&&ny>=0&&ny<GRID){d.x=nx;d.y=ny;}
+    }
+  }
+
+  // 太空商船移動
+  if(merchantShip && !merchantShip.turnedEnemy){
+    const md=dist(merchantShip,player);
+    if(md<=5){
+      // 5格內停下
+    } else {
+      merchantShip.moveTimer--;
+      if(merchantShip.moveTimer<=0){
+        merchantShip.moveTimer=20+Math.floor(Math.random()*36);
+        let nx=merchantShip.x+(-3+Math.floor(Math.random()*7));
+        let ny=merchantShip.y+(-3+Math.floor(Math.random()*7));
+        if(nx>=0&&nx<GRID&&ny>=0&&ny<GRID){merchantShip.x=nx;merchantShip.y=ny;}
+      }
+    }
+  } else if(merchantShip && merchantShip.turnedEnemy){
+    // 叛變後追擊玩家（速度同普通敵艦）
+    const md=dist(merchantShip,player);
+    if(md<=pstate.techBonuses.enemyR){
+      if(!merchantShip.chasing){merchantShip.chasing=true;log('🟢→🔴 商船叛變，開始追擊！');}
+      if(md>2){
+        let nx=merchantShip.x+(Math.random()<0.65?Math.sign(player.x-merchantShip.x):(-1+Math.floor(Math.random()*3)));
+        let ny=merchantShip.y+(Math.random()<0.65?Math.sign(player.y-merchantShip.y):(-1+Math.floor(Math.random()*3)));
+        const ndx=nx-player.x, ndy=ny-player.y;
+        const nd=Math.sqrt(ndx*ndx+ndy*ndy);
+        if(nd>=2 && nx>=0&&nx<GRID&&ny>=0&&ny<GRID){merchantShip.x=nx;merchantShip.y=ny;}
+      }
+    } else {
+      merchantShip.chasing=false;
+    }
+  }
+}
+
+function lerpShips(){
+  ships.forEach(s=>{s.rx=lerp(s.rx,s.x,LERP);s.ry=lerp(s.ry,s.y,LERP);});
+  cruisers.forEach(c=>{c.rx=lerp(c.rx,c.x,LERP);c.ry=lerp(c.ry,c.y,LERP);});
+  voidCruisers.forEach(c=>{c.rx=lerp(c.rx,c.x,LERP);c.ry=lerp(c.ry,c.y,LERP);});
+  if(merchantShip){merchantShip.rx=lerp(merchantShip.rx,merchantShip.x,LERP);merchantShip.ry=lerp(merchantShip.ry,merchantShip.y,LERP);}
+}
+
+function triggerDeath(reason){
+  pstate.energy=0; updateHUD();
+  const titles={
+    '恆星輻射':'☀ 恆星輻射毀滅',
+    '敵艦能量耗盡':'💀 能量被榨乾',
+    '黑洞':'🌌 被黑洞吞噬',
+    '巡航艦能量耗盡':'☠ 影盟巡航艦摧毀'
+  };
+  const descs={
+    '恆星輻射':'飛船過於靠近恆星，強烈的輻射將飛船徹底熔毀。',
+    '敵艦能量耗盡':'遭遇敵艦攻擊，飛船能量徹底耗盡，在宇宙中靜默。',
+    '黑洞':'飛船無法逃脫強大的引力，被徹底撕裂並吞噬於事件視界之中。',
+    '巡航艦能量耗盡':'影盟巡航艦的能量吸取將飛船徹底榨乾，宇宙中歸於沉寂。'
+  };
+  document.getElementById('dead-title').textContent=titles[reason]||'💀 飛船毀滅';
+  document.getElementById('dead-desc').textContent=(descs[reason]||'飛船在宇宙深處化為了碎片。')+'\n空域：'+currentSeed;
+  showDead(true);
+}
+
+function fullReset(){
+  pstate={level:1,xp:0,energy:BASE_EMAX,
+    techBonuses:{shieldDrain:0,starRegen:20,planetRegen:1,moveCost:1,
+      enemyR:5,friendRegen:5,extraView:0,emaxBonus:0,starRangeBonus:0},
+    discoveredTechs:[],totalCultivated:0};
+  // 稱號效果重新套用（持久跨局）
+  if(titleSlayer) pstate.techBonuses.emaxBonus+=500;
+  totalKills=0; wantedTriggered=false; cruisers=[]; laserBeams=[]; explosions=[]; laserCooldown=0;
+  voidMapFragments=0; voidFragmentFound=false;
+  inVoidMap=false; voidCruisers=[]; voidSpawnTimer=0; voidSpawnCount=0;
+  voidAllKilled=false; voidDreadnought=null; voidDreadSpawned=false;
+  voidDreadCountdown=false; voidPhase='spawning'; voidOpen=false;
+  document.getElementById('dread-alert').style.display='none';
+  document.getElementById('btn-enter-void').style.display='none';
+  endingActive=false; endingStartTime=null; endingExplosions=[];
+  merchantShip=null; merchantOpen=false;
+  neutronStar=null; supernovaRemnant=null; comet=null;
+  nstarFaultTick=0; nstarFaulted=false; nstarWarned=false; nstarOpen=false;
+  snovaShield=false; snovaShieldTick=0; snovaOpen=false;
+  document.getElementById('merchant-ov').style.display='none';
+  document.getElementById('merchant-popup').style.display='none';
+  document.getElementById('vfb').style.display='none';
+  document.getElementById('killv').textContent='0';
+  recalcStats();
+  updateTechList();
+  updateTitleBadges();
+  logs=[];
+  showDead(false);
+  const seed=randomSeed();
+  generateMap(seed,50,50);
+  log('飛船重建完成，進入新空域 '+seed+'...');
+  updateHUD();
+  updateRegenSources();
+  updateStatus();
+}
+
+// ══════════════════════════════════════════════
+// 遊戲操作：行星、科技、穿越與升級
+// ══════════════════════════════════════════════
+function openPlanet(p){
+  currentPlanet=p;
+  document.getElementById('pm-name').textContent='行星 '+p.name;
+  document.getElementById('pm-desc').textContent='發現行星「'+p.name+'」。選擇您的行動：';
+  showPm(true);
+  log('進入行星 '+p.name+' 軌道');
+}
+function openTech(tech){document.getElementById('tech-desc').textContent=tech;showTp(true);}
+
+function checkCultivatedMilestone(){
+  if(pstate.totalCultivated>0&&pstate.totalCultivated%30===0){
+    document.getElementById('jump-input').value='';
+    showJump(true);
+    log('✨ 星際穿越機會解鎖！已培育 '+pstate.totalCultivated+' 顆行星');
+  }
+}
+
+function doJump(){
+  const raw=document.getElementById('jump-input').value.toUpperCase().trim();
+  if(raw.length!==2){
+    document.getElementById('jump-input').style.borderColor='#ff4444';
+    setTimeout(()=>document.getElementById('jump-input').style.borderColor='#cc88ff',800);
+    return;
+  }
+  pstate.totalCultivated=0;
+  showJump(false);
+  generateMap(raw,50,50);
+  log('🚀 星際穿越至空域 '+raw+'！飛船出現於中央。');
+  updateHUD();updateRegenSources();updateStatus();
+}
+
+function checkXP(){
+  while(pstate.xp>=10){
+    pstate.xp-=10; pstate.level++;
+    recalcStats();
+    const lp=document.getElementById('lv-popup');
+    document.getElementById('lv-msg').textContent='🌟 升級！等級 '+pstate.level;
+    document.getElementById('lv-sub').textContent='視野 +1 ｜ 能量上限 +10（目前上限 '+emax+'）';
+    lp.style.display='block'; lp.style.animation='none';
+    void lp.offsetWidth; lp.style.animation='fadeout 2.5s forwards';
+    setTimeout(()=>{lp.style.display='none';},2500);
+    log('🌟 升級！等級 '+pstate.level+' ｜ 視野 '+viewR+' ｜ 能量上限 '+emax);
+    markExplored();
+  }
+}
+
+// ── 稱號獲取檢查 ──
+function checkTitles(){
+  let changed=false;
+  if(!titleHerder && privateCultivateCount>=100){
+    titleHerder=true;
+    changed=true;
+    // 蒼穹牧星者被動：能量+100/秒（加到星球補能基礎值）
+    pstate.techBonuses.planetRegen+=100;
+    log('🌿 稱號解鎖：【蒼穹牧星者】！獲得被動：能量 +100/秒');
+    showTitleToast('蒼穹牧星者','herder');
+  }
+  if(!titleSlayer && privateKillCount>=300){
+    titleSlayer=true;
+    changed=true;
+    // 影盟剋星永久效果：能量上限+500
+    pstate.techBonuses.emaxBonus+=500;
+    recalcStats();
+    pstate.energy=Math.min(emax,pstate.energy+500);
+    log('⚔ 稱號解鎖：【影盟剋星】！永久效果：能量上限 +500');
+    showTitleToast('影盟剋星','slayer');
+  }
+  if(changed) updateTitleBadges();
+}
+
+function showTitleToast(name, type){
+  const toast=document.createElement('div');
+  toast.style.cssText='position:fixed;top:20%;left:50%;transform:translateX(-50%);z-index:200;padding:14px 28px;border-radius:14px;font-family:"Courier New",monospace;font-size:16px;font-weight:bold;text-align:center;letter-spacing:2px;animation:fadeout 4s forwards;pointer-events:none;';
+  if(type==='herder'){
+    toast.style.background='rgba(0,40,30,0.95)';
+    toast.style.border='2px solid #00ffaa';
+    toast.style.color='#00ffcc';
+    toast.style.boxShadow='0 0 30px rgba(0,255,170,0.5)';
+  } else {
+    toast.style.background='rgba(40,0,60,0.95)';
+    toast.style.border='2px solid #cc00ff';
+    toast.style.color='#ff88ff';
+    toast.style.boxShadow='0 0 30px rgba(200,0,255,0.5)';
+  }
+  toast.innerHTML='✦ 稱號解鎖 ✦<br>【'+name+'】';
+  document.body.appendChild(toast);
+  setTimeout(()=>toast.remove(),4000);
+}
+
+function updateTitleBadges(){
+  const el=document.getElementById('title-badges');
+  el.innerHTML='';
+  if(titleHerder){
+    const b=document.createElement('span');
+    b.className='title-badge title-herder';
+    b.textContent='蒼穹牧星者';
+    el.appendChild(b);
+  }
+  if(titleSlayer){
+    const b=document.createElement('span');
+    b.className='title-badge title-slayer';
+    b.textContent='影盟剋星';
+    el.appendChild(b);
+  }
+}
+
+function applyTech(tech){
+  const tb=pstate.techBonuses;
+  if(tech.includes('量子護盾'))   tb.shieldDrain+=3;
+  if(tech.includes('暗物質'))     {tb.extraView+=2;recalcStats();markExplored();}
+  if(tech.includes('恆星爐心'))   tb.starRegen=30;
+  if(tech.includes('行星網絡'))   tb.planetRegen=3;
+  if(tech.includes('慣性推進'))   tb.moveCost=0.5;
+  if(tech.includes('電磁干擾'))   tb.enemyR=3;
+  if(tech.includes('友軍頻道'))   tb.friendRegen=8;
+  if(tech.includes('深空雷達'))   {tb.extraView+=3;recalcStats();markExplored();}
+  if(tech.includes('奈米修復'))   {tb.emaxBonus+=50;recalcStats();}
+  if(tech.includes('星圖資料庫')) tb.starRangeBonus+=2;
+  log('💡 科技解鎖：'+tech.split('：')[0]);
+  updateHUD();
+}
+function updateTechList(){
+  const el=document.getElementById('tech-list');
+  if(!pstate.discoveredTechs.length){el.textContent='尚未發現科技';return;}
+  el.innerHTML=pstate.discoveredTechs.map(t=>'<div style="margin-bottom:3px;color:#44ff88">✦ '+t.split('：')[0]+'</div>').join('');
+}
+
+function updateHUD(){
+  const pct=(pstate.energy/emax)*100;
+  const bar=document.getElementById('eb');
+  bar.style.width=pct+'%';
+  bar.className=pct<15?'crit':pct<30?'low':'';
+  document.getElementById('ev').textContent=Math.round(pstate.energy);
+  document.getElementById('emax-v').textContent=emax;
+  document.getElementById('xpv').textContent=pstate.xp;
+  document.getElementById('lvv').textContent=pstate.level;
+  document.getElementById('vrv').textContent=viewR;
+  document.getElementById('cd').textContent='('+player.x+','+player.y+')';
+  const ll=getLaserLevel();
+  let laserDisplay='-- (升級解鎖)';
+  if(ll>0){
+    const shots=getLaserShotsPerSec();
+    laserDisplay=getLaserName()+'(Lv'+ll+')'+(shots>1?' ×'+shots:'');
+  }
+  document.getElementById('laserv').textContent=laserDisplay;
+  // 異空間地圖碎片
+  if(voidFragmentFound){
+    if(inVoidMap){
+      document.getElementById('vfb').style.display='none';
+      document.getElementById('btn-enter-void').style.display='none';
+    } else {
+      document.getElementById('vfb').style.display= voidMapFragments<3 ? 'inline-block' : 'none';
+      document.getElementById('vfv').textContent=voidMapFragments;
+      document.getElementById('btn-enter-void').style.display= voidMapFragments>=3 ? 'inline-block' : 'none';
+    }
+  }
+}
+function log(msg){
+  logs.unshift(msg); if(logs.length>60)logs.pop();
+  const lb=document.getElementById('lb');
+  const div=document.createElement('div');
+  div.textContent=msg;
+  lb.insertBefore(div,lb.firstChild);
+  // 超過60條時移除最舊的
+  if(lb.children.length>60) lb.removeChild(lb.lastChild);
+}
+
+// ══════════════════════════════════════════════
+// UI 事件綁定
+// ══════════════════════════════════════════════
+function setupUI(){
+  document.getElementById('btn-mine').onclick=()=>{
+    if(!currentPlanet)return;
+    const pname=currentPlanet.name; currentPlanet.state='dead'; closePlanet();
+    if(Math.random()<0.3){
+      pstate.energy=Math.max(0,pstate.energy-100);
+      document.getElementById('exp-desc').textContent='開採行星「'+pname+'」觸發不穩定連鎖反應！能量損失 100！';
+      showExp(true);
+      log('💥 行星 '+pname+' 爆炸！能量 -100，行星消亡');
+    } else {
+      pstate.energy=Math.min(emax,pstate.energy+50);
+      pstate.xp+=3; checkXP();
+      log('⛏ 開採行星 '+pname+' 成功！能量 +50，升級值 +3，行星消亡');
+    }
+    updateHUD();
+  };
+  document.getElementById('btn-cult').onclick=()=>{
+    if(!currentPlanet)return;
+    pstate.xp+=1; checkXP();
+    currentPlanet.state='cultivated';
+    pstate.totalCultivated++;
+    privateCultivateCount++;
+    log('🌱 培育行星 '+currentPlanet.name+'，升級值 +1');
+    updateHUD(); closePlanet();
+    checkCultivatedMilestone();
+    checkTitles();
+  };
+  document.getElementById('btn-surv').onclick=()=>{
+    if(!currentPlanet)return;
+    const pname=currentPlanet.name; currentPlanet.state='surveyed'; closePlanet();
+    const avail=TECHS.filter(t=>!pstate.discoveredTechs.includes(t));
+    if(avail.length>0&&Math.random()<0.6){
+      const tech=avail[Math.floor(Math.random()*avail.length)];
+      pstate.discoveredTechs.push(tech); applyTech(tech);
+      log('調查完成，行星 '+pname+' 已封存');
+      setTimeout(()=>openTech(tech),80);
+    } else {
+      log('🔬 調查行星 '+pname+'，未發現特殊科技，行星已封存');
+    }
+  };
+  document.getElementById('btn-leave').onclick=()=>{closePlanet();log('選擇離開，行星保留探索機會');};
+
+  document.getElementById('tech-ok').onclick=closeTech;
+  document.getElementById('tp-ov').onclick=closeTech;
+  document.getElementById('exp-ok').onclick=()=>{showExp(false);updateHUD();};
+  document.getElementById('exp-ov').onclick=()=>{showExp(false);updateHUD();};
+  document.getElementById('pm-ov').onclick=()=>{closePlanet();log('選擇離開，行星保留探索機會');};
+
+  document.getElementById('btn-nav-yes').onclick=doNavigate;
+  document.getElementById('btn-nav-no').onclick=()=>{
+    showNav(false);
+    navCooldown=true;
+    setTimeout(()=>{navCooldown=false;},3000); 
+    log('選擇留在當前空域');
+  };
+
+  document.getElementById('btn-restart').onclick=fullReset;
+
+  document.getElementById('btn-wanted-ok').onclick=()=>{
+    wantedOpen=false;
+    document.getElementById('wanted-ov').style.display='none';
+    document.getElementById('wanted-popup').style.display='none';
+  };
+
+  // 中子星警告確認
+  document.getElementById('btn-nstar-ok').onclick=()=>{
+    nstarOpen=false;
+    document.getElementById('nstar-ov').style.display='none';
+    document.getElementById('nstar-popup').style.display='none';
+  };
+  document.getElementById('nstar-ov').onclick=()=>{
+    nstarOpen=false;
+    document.getElementById('nstar-ov').style.display='none';
+    document.getElementById('nstar-popup').style.display='none';
+  };
+
+  // 超新星護盾確認
+  document.getElementById('btn-snova-ok').onclick=()=>{
+    snovaOpen=false;
+    document.getElementById('snova-ov').style.display='none';
+    document.getElementById('snova-popup').style.display='none';
+  };
+  document.getElementById('snova-ov').onclick=()=>{
+    snovaOpen=false;
+    document.getElementById('snova-ov').style.display='none';
+    document.getElementById('snova-popup').style.display='none';
+  };
+
+  // 太空商船按鈕
+  document.getElementById('btn-merchant-trade').onclick=()=>{
+    if(!merchantShip) return;
+    if(pstate.energy<100){
+      log('⚠ 能量不足，無法交易！');
+      merchantShip.interacted=true;
+      merchantOpen=false;
+      document.getElementById('merchant-ov').style.display='none';
+      document.getElementById('merchant-popup').style.display='none';
+      return;
+    }
+    pstate.energy=Math.max(0,pstate.energy-100);
+    merchantShip.interacted=true;
+    merchantOpen=false;
+    document.getElementById('merchant-ov').style.display='none';
+    document.getElementById('merchant-popup').style.display='none';
+    // 1/6 XP+5, 2/6 XP+3, 3/6 XP+1
+    const roll=Math.floor(Math.random()*6);
+    if(roll===0){
+      pstate.xp+=9; checkXP();
+      log('💰 交易完成！能量 -100，XP +9（大豐收！）');
+    } else if(roll<=2){
+      pstate.xp+=5; checkXP();
+      log('💰 交易完成！能量 -100，XP +5');
+    } else {
+      pstate.xp+=1; checkXP();
+      log('💰 交易完成！能量 -100，XP +1');
+    }
+    updateHUD();
+  };
+  document.getElementById('btn-merchant-leave').onclick=()=>{
+    if(!merchantShip) return;
+    merchantShip.interacted=true;
+    merchantOpen=false;
+    document.getElementById('merchant-ov').style.display='none';
+    document.getElementById('merchant-popup').style.display='none';
+    // 1/2 沒事，1/2 叛變
+    if(Math.random()<0.5){
+      log('🚢 商船悄然離去...');
+    } else {
+      merchantShip.turnedEnemy=true;
+      log('⚠ 商船突然叛變，開始追擊！');
+    }
+  };
+
+  document.getElementById('btn-jump-ok').onclick=doJump;
+  document.getElementById('btn-jump-cancel').onclick=()=>showJump(false);
+  document.getElementById('jump-ov').onclick=()=>showJump(false);
+  const ji=document.getElementById('jump-input');
+  ji.addEventListener('input',()=>{
+    ji.value=ji.value.toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,2);
+  });
+  ji.addEventListener('keydown',e=>{if(e.key==='Enter')doJump();});
+
+  window.addEventListener('keydown',onKey);
+  canvas.addEventListener('click',onCanvasClick);
+}
+
+// ══════════════════════════════════════════════
+// 鍵鼠控制
+// ══════════════════════════════════════════════
+function onKey(e){
+  if(e.key==='Escape'){
+    if(jumpOpen){showJump(false);return;}
+    if(deadOpen) return;
+    if(expOpen){showExp(false);return;}
+    if(tpOpen){closeTech();return;}
+    if(pmOpen){closePlanet();log('選擇離開，行星保留探索機會');return;}
+    if(navOpen){
+      showNav(false);navCooldown=true;
+      setTimeout(()=>{navCooldown=false;},3000);
+      return;
+    }
+  }
+  if(anyOpen()) return;
+  
+  let nx=player.x, ny=player.y;
+  let isMoveKey = false;
+  
+  if     (e.key==='ArrowUp'   ||e.key==='w'||e.key==='W'){ny--; isMoveKey=true; e.preventDefault();}
+  else if(e.key==='ArrowDown' ||e.key==='s'||e.key==='S'){ny++; isMoveKey=true; e.preventDefault();}
+  else if(e.key==='ArrowLeft' ||e.key==='a'||e.key==='A'){nx--; isMoveKey=true; e.preventDefault();}
+  else if(e.key==='ArrowRight'||e.key==='d'||e.key==='D'){nx++; isMoveKey=true; e.preventDefault();}
+  else if(e.key==='Enter'){
+    const p=planets.find(p=>p.x===player.x&&p.y===player.y&&p.state==='virgin');
+    if(p)openPlanet(p); 
+    return;
+  } 
+  
+  if(isMoveKey){
+    if(!throttleMove()) return;
+    movePlayer(nx,ny);
+  }
+}
+
+function onCanvasClick(e){
+  if(anyOpen()) return;
+  const rect=canvas.getBoundingClientRect();
+  const sx=canvas.width/rect.width,sy=canvas.height/rect.height;
+  const gx=Math.floor((e.clientX-rect.left)*sx/CELL);
+  const gy=Math.floor((e.clientY-rect.top)*sy/CELL);
+  
+  if(gx<0||gx>=GRID||gy<0||gy>=GRID) return;
+  if(!explored.has(key(gx,gy))) return;
+  
+  let nx=player.x,ny=player.y;
+  if     (gx>player.x)nx++;
+  else if(gx<player.x)nx--;
+  if     (gy>player.y&&nx===player.x)ny++;
+  else if(gy<player.y&&nx===player.x)ny--;
+  
+  if(!throttleMove()) return;
+  movePlayer(nx,ny);
+}
+
+// ══════════════════════════════════════════════
+// 繪圖
+// ══════════════════════════════════════════════
+function draw(){
+  ctx.clearRect(0,0,CS,CS);
+
+  // 1. 地圖底色＋迷霧（由 OffscreenCanvas 快取，僅在 bgDirty 時重繪）
+  if(bgDirty) drawBgCache();
+  ctx.drawImage(bgCanvas,0,0);
+
+  // 2. 恆星 (移除紅色危險圈)
+  const starR=STAR_R+pstate.techBonuses.starRangeBonus;
+  stars.forEach(s=>{
+    if(!explored.has(key(s.x,s.y))) return;
+    const px=s.x*CELL+CELL/2,py=s.y*CELL+CELL/2;
+    s.rot=(s.rot||0)+0.018;
+    const flickerA=0.55+0.45*Math.sin(tick*0.07+s.rot*0.5);
+    const coreR=3.5+1.2*Math.sin(tick*0.06);
+    const dStar=dist(s,player);
+    const inV=dStar<=viewR;
+    const isDanger=dStar<=1;
+
+    ctx.save();ctx.translate(px,py);
+    for(let i=0;i<8;i++){
+      const angle=s.rot+(i/8)*Math.PI*2;
+      const len=(5+3*Math.sin(tick*0.09+i))*flickerA;
+      ctx.beginPath();
+      ctx.moveTo(Math.cos(angle)*(coreR+1),Math.sin(angle)*(coreR+1));
+      ctx.lineTo(Math.cos(angle)*(coreR+len),Math.sin(angle)*(coreR+len));
+      ctx.strokeStyle='rgba(255,220,80,'+(0.4*flickerA)+')';
+      ctx.lineWidth=1.2;ctx.stroke();
+    }
+    ctx.restore();
+
+    if(inV){
+      const grad=ctx.createRadialGradient(px,py,coreR,px,py,coreR*3.5);
+      const c0=isDanger?'rgba(255,80,0,'+(0.4*flickerA)+')':'rgba(255,220,60,'+(0.3*flickerA)+')';
+      grad.addColorStop(0,c0); grad.addColorStop(1,'rgba(255,150,0,0)');
+      ctx.beginPath();ctx.arc(px,py,coreR*3.5,0,Math.PI*2);
+      ctx.fillStyle=grad;ctx.fill();
+    }
+
+    ctx.beginPath();ctx.arc(px,py,coreR,0,Math.PI*2);
+    ctx.fillStyle=isDanger?'#ffaa44':'#fff5aa';
+    ctx.shadowColor=isDanger?'#ff4400':'#ffdd00';
+    ctx.shadowBlur=Math.min(10,10*flickerA);
+    ctx.fill();ctx.shadowBlur=0;
+
+    // 充能範圍圈
+    ctx.beginPath();ctx.arc(px,py,starR*CELL+CELL/2,0,Math.PI*2);
+    ctx.strokeStyle='rgba(255,200,0,0.06)';ctx.lineWidth=1;ctx.stroke();
+  });
+
+  // 3. 行星
+  planets.forEach(p=>{
+    if(!explored.has(key(p.x,p.y))) return;
+    const px=p.x*CELL+CELL/2,py=p.y*CELL+CELL/2;
+    let col=p.state==='cultivated'?'#22cc55':(p.state==='dead'||p.state==='surveyed')?'#555':'#44bbff';
+    ctx.beginPath();ctx.arc(px,py,2.8,0,Math.PI*2);
+    ctx.fillStyle=col;ctx.shadowColor=col;ctx.shadowBlur=4;ctx.fill();ctx.shadowBlur=0;
+    ctx.beginPath();ctx.ellipse(px,py,4.5,1.6,0.4,0,Math.PI*2);
+    ctx.strokeStyle=col+'77';ctx.lineWidth=0.8;ctx.stroke();
+    if(p.state==='cultivated'){
+      ctx.beginPath();ctx.arc(px,py,PLANET_REGEN_R*CELL+CELL/2,0,Math.PI*2);
+      ctx.strokeStyle='rgba(34,204,85,0.09)';ctx.lineWidth=1;ctx.stroke();
+    }
+  });
+  
+  // 3.5 繪製黑洞
+  if (blackHole && explored.has(key(blackHole.x, blackHole.y))) {
+    const px = blackHole.x * CELL + CELL / 2;
+    const py = blackHole.y * CELL + CELL / 2;
+    blackHole.rot -= 0.04;
+
+    ctx.save();
+    ctx.translate(px, py);
+    ctx.rotate(blackHole.rot);
+    const grad = ctx.createRadialGradient(0,0, CELL*0.5, 0,0, CELL*4);
+    grad.addColorStop(0, 'rgba(0, 0, 0, 1)');
+    grad.addColorStop(0.3, 'rgba(100, 0, 200, 0.8)');
+    grad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(0, 0, CELL*4, 0, Math.PI*2);
+    ctx.fill();
+
+    ctx.fillStyle = '#000';
+    ctx.shadowColor = '#aa00ff';
+    ctx.shadowBlur = 8;
+    ctx.beginPath();
+    ctx.arc(0, 0, CELL*1.2, 0, Math.PI*2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.restore();
+  }
+
+  // 3.6 繪製小行星
+  if (asteroidBelt) {
+    ctx.fillStyle = '#6a6a7c';
+    asteroids.forEach(a => {
+      if (explored.has(key(a.x, a.y))) {
+        const px = a.x * CELL + CELL / 2;
+        const py = a.y * CELL + CELL / 2;
+        ctx.beginPath();
+        ctx.arc(px, py, a.size, 0, Math.PI*2);
+        ctx.fill();
+      }
+    });
+  }
+
+  // 3.7 繪製中子星（快速旋轉白色星球）
+  if(neutronStar && explored.has(key(neutronStar.x, neutronStar.y))){
+    const px=neutronStar.x*CELL+CELL/2, py=neutronStar.y*CELL+CELL/2;
+    neutronStar.rot=(neutronStar.rot||0)+0.12; // 快速旋轉
+    const pulse=0.8+0.2*Math.sin(tick*0.3);
+    ctx.save();
+    ctx.translate(px, py);
+    ctx.rotate(neutronStar.rot);
+    // 磁場範圍圈
+    ctx.beginPath();ctx.arc(0,0,25*CELL,0,Math.PI*2);
+    ctx.strokeStyle='rgba(180,200,255,0.04)';ctx.lineWidth=1;ctx.stroke();
+    // 旋轉光芒
+    for(let i=0;i<6;i++){
+      const angle=(i/6)*Math.PI*2;
+      const len=8+4*Math.sin(tick*0.15+i);
+      ctx.beginPath();
+      ctx.moveTo(Math.cos(angle)*3.5, Math.sin(angle)*3.5);
+      ctx.lineTo(Math.cos(angle)*(3.5+len), Math.sin(angle)*(3.5+len));
+      ctx.strokeStyle='rgba(200,220,255,0.7)';ctx.lineWidth=1;ctx.stroke();
+    }
+    // 核心白色星球
+    const coreGrad=ctx.createRadialGradient(0,0,0,0,0,5*pulse);
+    coreGrad.addColorStop(0,'#ffffff');
+    coreGrad.addColorStop(0.5,'#ccddff');
+    coreGrad.addColorStop(1,'rgba(150,180,255,0)');
+    ctx.beginPath();ctx.arc(0,0,5*pulse,0,Math.PI*2);
+    ctx.fillStyle=coreGrad;
+    ctx.shadowColor='#aaccff';ctx.shadowBlur=10;
+    ctx.fill();ctx.shadowBlur=0;
+    ctx.restore();
+    // 故障閃電符號顯示在飛船頭上（若在中子星範圍且故障中）
+    if(nstarFaulted && dist(neutronStar,player)<=25){
+      const pxP=player.x*CELL+CELL/2, pyP=player.y*CELL+CELL/2;
+      const blinkA=(Math.floor(tick/8)%2===0)?1:0;
+      ctx.globalAlpha=blinkA;
+      ctx.font='bold 14px sans-serif';
+      ctx.fillStyle='#ffff00';
+      ctx.textAlign='center';
+      ctx.fillText('⚡',pxP,pyP-12);
+      ctx.globalAlpha=1;
+      ctx.textAlign='left';
+    }
+  }
+
+  // 3.8 繪製超新星遺跡（不規則閃爍光芒群）
+  if(supernovaRemnant){
+    supernovaRemnant.forEach(r=>{
+      const rx=Math.round(r.x), ry=Math.round(r.y);
+      if(!explored.has(key(rx,ry))) return;
+      r.phase=(r.phase||0)+r.speed;
+      const flicker=0.4+0.6*Math.abs(Math.sin(r.phase));
+      const px=r.x*CELL+CELL/2, py=r.y*CELL+CELL/2;
+      ctx.save();
+      ctx.globalAlpha=flicker*0.9;
+      const grad=ctx.createRadialGradient(px,py,0,px,py,r.size*CELL*0.8);
+      grad.addColorStop(0,'rgba(255,240,180,1)');
+      grad.addColorStop(0.4,'rgba(255,180,60,0.8)');
+      grad.addColorStop(1,'rgba(255,100,0,0)');
+      ctx.beginPath();ctx.arc(px,py,r.size*CELL*0.8,0,Math.PI*2);
+      ctx.fillStyle=grad;ctx.fill();
+      ctx.globalAlpha=1;
+      ctx.restore();
+    });
+  }
+
+  // 3.9 繪製彗星（帶拖尾）
+  if(comet){
+    const cx2=comet.x*CELL+CELL/2, cy2=comet.y*CELL+CELL/2;
+    const inView=explored.has(key(Math.round(comet.x),Math.round(comet.y)));
+    if(inView){
+      // 拖尾
+      comet.tail.forEach((t,i)=>{
+        const tx=t.x*CELL+CELL/2, ty=t.y*CELL+CELL/2;
+        const alpha=(1-i/comet.tail.length)*0.5;
+        const sz=2.5-i*0.3;
+        if(sz<=0) return;
+        ctx.save();
+        ctx.globalAlpha=alpha;
+        ctx.beginPath();ctx.arc(tx,ty,sz,0,Math.PI*2);
+        ctx.fillStyle='#aaddff';ctx.fill();
+        ctx.globalAlpha=1;
+        ctx.restore();
+      });
+      // 彗星本體
+      const cPulse=0.8+0.2*Math.sin(tick*0.25);
+      ctx.save();
+      const cGrad=ctx.createRadialGradient(cx2,cy2,0,cx2,cy2,4*cPulse);
+      cGrad.addColorStop(0,'#ffffff');
+      cGrad.addColorStop(0.4,'#88ccff');
+      cGrad.addColorStop(1,'rgba(100,180,255,0)');
+      ctx.beginPath();ctx.arc(cx2,cy2,4*cPulse,0,Math.PI*2);
+      ctx.fillStyle=cGrad;
+      ctx.shadowColor='#88ccff';ctx.shadowBlur=8;
+      ctx.fill();ctx.shadowBlur=0;
+      ctx.restore();
+    }
+  }
+
+  // 4. 艦隊
+  ships.forEach(s=>{
+    if(!explored.has(key(s.x,s.y))) return;
+    const px=s.rx*CELL+CELL/2,py=s.ry*CELL+CELL/2;
+    let col=s.type==='enemy'?(s.chasing?'#ff2200':'#ff5544'):(s.supporting?'#00ffaa':'#22cc44');
+    ctx.beginPath();
+    ctx.moveTo(px,py-3);ctx.lineTo(px+2.2,py+2);ctx.lineTo(px-2.2,py+2);
+    ctx.closePath();
+    ctx.fillStyle=col;ctx.shadowColor=col;
+    ctx.shadowBlur=(s.chasing||s.supporting)?6:2;
+    ctx.fill();ctx.shadowBlur=0;
+  });
+
+  // 4.25 太空商船（深綠色）
+  if(merchantShip && explored.has(key(Math.round(merchantShip.x),Math.round(merchantShip.y)))){
+    const px=merchantShip.rx*CELL+CELL/2, py=merchantShip.ry*CELL+CELL/2;
+    const col=merchantShip.turnedEnemy?(merchantShip.chasing?'#ff2200':'#ff5544'):'#1a7a3a';
+    ctx.beginPath();
+    ctx.moveTo(px,py-3);ctx.lineTo(px+2.2,py+2);ctx.lineTo(px-2.2,py+2);
+    ctx.closePath();
+    ctx.fillStyle=col;ctx.shadowColor=col;ctx.shadowBlur=merchantShip.chasing?6:3;
+    ctx.fill();ctx.shadowBlur=0;
+    // 商船標記（小菱形）
+    if(!merchantShip.turnedEnemy){
+      ctx.beginPath();ctx.arc(px,py-5,1.5,0,Math.PI*2);
+      ctx.fillStyle='#44ffaa';ctx.fill();
+    }
+  }
+
+  // 4.5 巡航艦（大型，影盟紫色）
+  cruisers.forEach(c=>{
+    if(c.hidden) return; // 隱藏中不繪製
+    if(!explored.has(key(Math.round(c.rx),Math.round(c.ry)))) return;
+    const px=c.rx*CELL+CELL/2, py=c.ry*CELL+CELL/2;
+    const pulse=0.7+0.3*Math.sin(tick*0.08);
+    // 大型艦體（5倍）
+    ctx.save();
+    ctx.translate(px,py);
+    // 光環
+    ctx.beginPath();ctx.arc(0,0,CELL*2.5*pulse,0,Math.PI*2);
+    ctx.fillStyle='rgba(180,0,255,0.07)';ctx.fill();
+    // 艦體
+    ctx.beginPath();
+    ctx.moveTo(0,-7);ctx.lineTo(5,3);ctx.lineTo(3,7);ctx.lineTo(-3,7);ctx.lineTo(-5,3);
+    ctx.closePath();
+    ctx.fillStyle='#cc00ff';ctx.shadowColor='#ff44ff';ctx.shadowBlur=12;ctx.fill();ctx.shadowBlur=0;
+    // 核心
+    ctx.beginPath();ctx.arc(0,1,2.5,0,Math.PI*2);
+    ctx.fillStyle='#ff88ff';ctx.fill();
+    // HP條
+    const hpPct=c.hp/c.maxHp;
+    ctx.fillStyle='rgba(0,0,0,0.6)';ctx.fillRect(-8,10,16,3);
+    ctx.fillStyle=hpPct>0.5?'#44ff88':'#ff4444';
+    ctx.fillRect(-8,10,16*hpPct,3);
+    ctx.restore();
+
+    // 偵測圈（輕微顯示）
+    if(dist(c,player)<=20){
+      ctx.beginPath();
+      ctx.arc(px,py,10*CELL+CELL/2,0,Math.PI*2);
+      ctx.strokeStyle='rgba(180,0,255,0.04)';ctx.lineWidth=1;ctx.stroke();
+    }
+  });
+
+  // 4.55 異空間巡航艦
+  if(inVoidMap){
+    voidCruisers.forEach(c=>{
+      const px=c.rx*CELL+CELL/2, py=c.ry*CELL+CELL/2;
+      if(!explored.has(key(Math.round(c.rx),Math.round(c.ry)))) return;
+      const pulse=0.7+0.3*Math.sin(tick*0.08);
+      ctx.save();ctx.translate(px,py);
+      ctx.beginPath();ctx.arc(0,0,CELL*2.5*pulse,0,Math.PI*2);
+      ctx.fillStyle='rgba(180,0,255,0.07)';ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(0,-7);ctx.lineTo(5,3);ctx.lineTo(3,7);ctx.lineTo(-3,7);ctx.lineTo(-5,3);
+      ctx.closePath();
+      ctx.fillStyle='#cc00ff';ctx.shadowColor='#ff44ff';ctx.shadowBlur=12;ctx.fill();ctx.shadowBlur=0;
+      ctx.beginPath();ctx.arc(0,1,2.5,0,Math.PI*2);ctx.fillStyle='#ff88ff';ctx.fill();
+      const hpPct=c.hp/c.maxHp;
+      ctx.fillStyle='rgba(0,0,0,0.6)';ctx.fillRect(-8,10,16,3);
+      ctx.fillStyle=hpPct>0.5?'#44ff88':'#ff4444';ctx.fillRect(-8,10,16*hpPct,3);
+      ctx.restore();
+    });
+
+    // 毀滅星艦
+    if(voidDreadnought && voidPhase==='dread'){
+      const d=voidDreadnought;
+      d.rx=lerp(d.rx,d.x,LERP); d.ry=lerp(d.ry,d.y,LERP);
+      const px=d.rx*CELL+CELL/2, py=d.ry*CELL+CELL/2;
+      const pulse=0.7+0.3*Math.sin(tick*0.05);
+      ctx.save();ctx.translate(px,py);
+      // 外光環
+      ctx.beginPath();ctx.arc(0,0,CELL*5*pulse,0,Math.PI*2);
+      ctx.fillStyle='rgba(200,0,60,0.1)';ctx.fill();
+      // 吸能範圍
+      ctx.beginPath();ctx.arc(0,0,30*CELL,0,Math.PI*2);
+      ctx.strokeStyle='rgba(255,0,80,0.05)';ctx.lineWidth=1;ctx.stroke();
+      // 艦體（更大）
+      ctx.beginPath();
+      ctx.moveTo(0,-14);ctx.lineTo(10,0);ctx.lineTo(8,14);
+      ctx.lineTo(0,10);ctx.lineTo(-8,14);ctx.lineTo(-10,0);
+      ctx.closePath();
+      ctx.fillStyle='#880020';ctx.shadowColor='#ff0040';ctx.shadowBlur=20;ctx.fill();ctx.shadowBlur=0;
+      // 核心
+      const cGrad=ctx.createRadialGradient(0,0,0,0,0,6*pulse);
+      cGrad.addColorStop(0,'#ffffff');cGrad.addColorStop(0.4,'#ff4488');cGrad.addColorStop(1,'rgba(200,0,60,0)');
+      ctx.beginPath();ctx.arc(0,0,6*pulse,0,Math.PI*2);ctx.fillStyle=cGrad;ctx.fill();
+      // HP條（更長）
+      const hp=d.hp/d.maxHp;
+      ctx.fillStyle='rgba(0,0,0,0.7)';ctx.fillRect(-20,16,40,5);
+      ctx.fillStyle=hp>0.5?'#44ff88':hp>0.25?'#ffaa00':'#ff2222';
+      ctx.fillRect(-20,16,40*hp,5);
+      ctx.restore();
+    }
+  }
+
+  // 4.6 雷射光束
+  for(let i=laserBeams.length-1;i>=0;i--){
+    const b=laserBeams[i];
+    const alpha=b.life/8;
+    const x1=b.x1*CELL+CELL/2, y1=b.y1*CELL+CELL/2;
+    const x2=b.x2*CELL+CELL/2, y2=b.y2*CELL+CELL/2;
+    ctx.save();
+    ctx.beginPath();ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);
+    ctx.strokeStyle=b.color.replace(')',','+alpha+')').replace('rgb','rgba').replace('#','rgba(').replace('rgba(','rgba(');
+    // simpler approach
+    ctx.globalAlpha=alpha;
+    ctx.strokeStyle=b.color;
+    ctx.lineWidth=2+alpha*2;
+    ctx.shadowColor=b.color;ctx.shadowBlur=8*alpha;
+    ctx.stroke();
+    ctx.restore();
+    b.life--;
+    if(b.life<=0) laserBeams.splice(i,1);
+  }
+
+  // 4.7 爆炸效果
+  for(let i=explosions.length-1;i>=0;i--){
+    const ex=explosions[i];
+    const px=ex.x*CELL+CELL/2, py=ex.y*CELL+CELL/2;
+    const progress=1-ex.life/ex.maxLife;
+    const r=ex.big?(CELL*3*progress+CELL):(CELL*1.5*progress+CELL*0.5);
+    const alpha=ex.life/ex.maxLife;
+    ctx.save();
+    ctx.globalAlpha=alpha;
+    // 外圈
+    const grad=ctx.createRadialGradient(px,py,0,px,py,r);
+    grad.addColorStop(0,ex.big?'rgba(255,150,255,1)':'rgba(255,220,100,1)');
+    grad.addColorStop(0.4,ex.big?'rgba(200,0,255,0.8)':'rgba(255,100,0,0.8)');
+    grad.addColorStop(1,'rgba(0,0,0,0)');
+    ctx.beginPath();ctx.arc(px,py,r,0,Math.PI*2);
+    ctx.fillStyle=grad;ctx.fill();
+    // 火花線
+    const sparks=ex.big?10:6;
+    for(let s=0;s<sparks;s++){
+      const angle=(s/sparks)*Math.PI*2+progress*3;
+      const slen=r*(0.8+0.4*Math.sin(s*7));
+      ctx.beginPath();
+      ctx.moveTo(px+Math.cos(angle)*r*0.3,py+Math.sin(angle)*r*0.3);
+      ctx.lineTo(px+Math.cos(angle)*slen,py+Math.sin(angle)*slen);
+      ctx.strokeStyle=ex.big?'#ff88ff':'#ffcc44';
+      ctx.lineWidth=ex.big?2:1;ctx.stroke();
+    }
+    ctx.restore();
+    ex.life--;
+    if(ex.life<=0) explosions.splice(i,1);
+  }
+
+  // 5. 迷霧覆蓋（已整合至 OffscreenCanvas 背景快取，此處略過）
+
+  // 6. 我方飛船
+  const px2=player.x*CELL+CELL/2,py2=player.y*CELL+CELL/2;
+  const pulse=0.7+0.3*Math.sin(tick*0.1);
+  ctx.beginPath();ctx.arc(px2,py2,6*pulse,0,Math.PI*2);
+  ctx.fillStyle='rgba(0,229,255,0.07)';ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(px2,py2-4);ctx.lineTo(px2+2.5,py2+2);
+  ctx.lineTo(px2,py2+3);ctx.lineTo(px2-2.5,py2+2);
+  ctx.closePath();
+  ctx.fillStyle='#00e5ff';ctx.shadowColor='#00e5ff';ctx.shadowBlur=7;
+  ctx.fill();ctx.shadowBlur=0;
+
+  // 超新星護盾光圈（細黃色圈，3格範圍）
+  if(snovaShield){
+    const shieldPulse=0.7+0.3*Math.sin(tick*0.08);
+    ctx.beginPath();ctx.arc(px2,py2,3*CELL*shieldPulse,0,Math.PI*2);
+    ctx.strokeStyle='rgba(255,220,0,'+(0.5+0.3*shieldPulse)+')';
+    ctx.lineWidth=1.5;ctx.shadowColor='#ffdd00';ctx.shadowBlur=6;
+    ctx.stroke();ctx.shadowBlur=0;
+    // 二層細圈
+    ctx.beginPath();ctx.arc(px2,py2,3*CELL*0.85,0,Math.PI*2);
+    ctx.strokeStyle='rgba(255,200,0,0.2)';ctx.lineWidth=0.8;ctx.stroke();
+  }
+
+  const nearEnemy =ships.some(s=>s.type==='enemy'&&s.chasing&&dist(s,player)<=pstate.techBonuses.enemyR);
+  const nearFriend=ships.some(s=>s.type==='friendly'&&s.supporting);
+  if(regenSources.starDanger){
+    const a=0.6+0.4*Math.sin(tick*0.4);
+    ctx.font='bold 14px sans-serif';
+    ctx.fillStyle='rgba(255,100,0,'+a+')';
+    ctx.textAlign='center';ctx.fillText('☀',px2,py2-10);
+  } else if(nearEnemy){
+    const a=0.5+0.5*Math.sin(tick*0.3);
+    ctx.font='bold 13px sans-serif';
+    ctx.fillStyle='rgba(255,50,0,'+a+')';
+    ctx.textAlign='center';ctx.fillText('!',px2,py2-9);
+  } else if(nearFriend&&pstate.energy<emax*0.5){
+    const a=0.5+0.5*Math.sin(tick*0.2);
+    ctx.font='bold 11px sans-serif';
+    ctx.fillStyle='rgba(0,255,170,'+a+')';
+    ctx.textAlign='center';ctx.fillText('♥',px2,py2-9);
+  }
+  ctx.textAlign='left';
+
+  // 邊框光暈
+  if(regenSources.starDanger){
+    ctx.strokeStyle='rgba(255,80,0,'+(0.3+0.15*Math.sin(tick*0.2))+')';
+    ctx.lineWidth=3;ctx.strokeRect(1,1,CS-2,CS-2);
+  } else if(regenSources.star){
+    ctx.strokeStyle='rgba(255,200,0,'+(0.18+0.08*Math.sin(tick*0.07))+')';
+    ctx.lineWidth=2;ctx.strokeRect(1,1,CS-2,CS-2);
+  } else if(ships.some(s=>s.type==='enemy'&&s.chasing&&dist(s,player)<=3)){
+    ctx.strokeStyle='rgba(255,30,0,'+(0.18+0.1*Math.sin(tick*0.15))+')';
+    ctx.lineWidth=2;ctx.strokeRect(1,1,CS-2,CS-2);
+  }
+
+  // ── 結局演出（疊加在遊戲 canvas 上） ──
+  if(endingActive){
+    const elapsed = performance.now() - endingStartTime;
+    const PHASE1=3500, PHASE2=5000, PHASE3=6000, PHASE4=7000, PHASE5=11000, PHASE6=13000;
+
+    if(elapsed<PHASE1){
+      // 爆炸陸續出現，整體逐漸變亮紫
+      const brightness=elapsed/PHASE1;
+      ctx.fillStyle='rgba('+Math.floor(brightness*100)+',0,'+Math.floor(brightness*180)+','+(brightness*0.65)+')';
+      ctx.fillRect(0,0,CS,CS);
+
+      endingExplosions.forEach(ex=>{
+        if(elapsed>=ex.delay){
+          if(!ex.born){ex.born=true; ex.bornAt=elapsed;}
+          const age=elapsed-ex.bornAt;
+          const life=Math.max(0,1-age/900);
+          if(life<=0) return;
+          ctx.save();
+          ctx.globalAlpha=life;
+          const grad=ctx.createRadialGradient(ex.x,ex.y,0,ex.x,ex.y,ex.r*(1+(1-life)*1.5));
+          grad.addColorStop(0,'rgba(255,255,255,1)');
+          grad.addColorStop(0.3,'rgba(255,150,255,0.9)');
+          grad.addColorStop(0.7,'rgba(180,0,255,0.5)');
+          grad.addColorStop(1,'rgba(0,0,0,0)');
+          ctx.beginPath();ctx.arc(ex.x,ex.y,ex.r*(1+(1-life)*1.5),0,Math.PI*2);
+          ctx.fillStyle=grad;ctx.fill();
+          ctx.restore();
+        }
+      });
+
+    } else if(elapsed<PHASE2){
+      // 逐漸全白
+      const p=(elapsed-PHASE1)/(PHASE2-PHASE1);
+      ctx.fillStyle='rgba(255,255,255,'+p+')';
+      ctx.fillRect(0,0,CS,CS);
+
+    } else if(elapsed<PHASE3){
+      // 白→黑
+      ctx.fillStyle='#fff';ctx.fillRect(0,0,CS,CS);
+      const p=(elapsed-PHASE2)/(PHASE3-PHASE2);
+      ctx.fillStyle='rgba(0,0,0,'+p+')';
+      ctx.fillRect(0,0,CS,CS);
+
+    } else if(elapsed<PHASE4){
+      // 全黑
+      ctx.fillStyle='#000';ctx.fillRect(0,0,CS,CS);
+
+    } else if(elapsed<PHASE5){
+      // 字幕淡入停留
+      ctx.fillStyle='#000';ctx.fillRect(0,0,CS,CS);
+      const fadeIn=Math.min(1,(elapsed-PHASE4)/1200);
+      ctx.save();
+      ctx.globalAlpha=fadeIn;
+      ctx.textAlign='center';
+      ctx.font='bold 18px "Courier New",monospace';
+      ctx.fillStyle='#ffffff';
+      ctx.shadowColor='#cc88ff';ctx.shadowBlur=12;
+      ctx.fillText('深空又恢復和平',CS/2,CS/2-18);
+      ctx.shadowBlur=0;
+      ctx.font='13px "Courier New",monospace';
+      ctx.fillStyle='#cc88ff';
+      ctx.fillText('感謝您的勇氣與努力',CS/2,CS/2+18);
+      ctx.restore();
+      ctx.textAlign='left';
+
+    } else if(elapsed<PHASE6){
+      // 字幕淡出
+      ctx.fillStyle='#000';ctx.fillRect(0,0,CS,CS);
+      const p=1-(elapsed-PHASE5)/(PHASE6-PHASE5);
+      ctx.save();
+      ctx.globalAlpha=Math.max(0,p);
+      ctx.textAlign='center';
+      ctx.font='bold 18px "Courier New",monospace';
+      ctx.fillStyle='#ffffff';
+      ctx.shadowColor='#cc88ff';ctx.shadowBlur=12;
+      ctx.fillText('遊戲製作人CCC',CS/2,CS/2-18);
+      ctx.shadowBlur=0;
+      ctx.font='13px "Courier New",monospace';
+      ctx.fillStyle='#cc88ff';
+      ctx.fillText('~謝謝您的遊玩~',CS/2,CS/2+18);
+      ctx.restore();
+      ctx.textAlign='left';
+
+    } else {
+      // 結局結束，重置遊戲
+      endingActive=false;
+      fullReset();
+    }
+  }
+}
+
+// ══════════════════════════════════════════════
+// 主迴圈
+// ══════════════════════════════════════════════
+function gameLoop(){
+  tick++;
+  if(tick%2===0) moveShips();
+  lerpShips();
+  
+  // 黑洞拖曳判定 (每 30 tick = 約 0.5 秒拉扯 1 格)
+  if(tick%5===0 && blackHole && !deadOpen && !snovaShield) {
+    let dx = blackHole.x - player.x;
+    let dy = blackHole.y - player.y;
+    if(Math.abs(dx) <= 20 && Math.abs(dy) <= 20) {
+      if(dx === 0 && dy === 0) {
+        triggerDeath('黑洞');
+      } else {
+        player.x += Math.sign(dx);
+        player.y += Math.sign(dy);
+        markExplored();
+        updateHUD();
+        updateRegenSources();
+        updateStatus();
+        if(player.x === blackHole.x && player.y === blackHole.y) {
+          triggerDeath('黑洞');
+        }
+      }
+    }
+  }
+
+  if(tick%6===0){updateRegenSources();updateStatus();}
+
+  // 中子星故障邏輯（每1秒=60tick故障1秒=60tick），護盾免疫
+  if(neutronStar && !snovaShield && !deadOpen){
+    const NSTAR_RANGE = 30; // 60格範圍的半徑（曼哈頓距離用30）
+    const inNstar = dist(neutronStar, player) <= NSTAR_RANGE;
+    if(inNstar){
+      if(!nstarWarned){
+        nstarWarned=true;
+        nstarOpen=true;
+        document.getElementById('nstar-ov').style.display='block';
+        document.getElementById('nstar-popup').style.display='block';
+        log('⚡ 進入中子星範圍！儀器受磁場干擾！');
+      }
+      nstarFaultTick++;
+      if(!nstarFaulted && nstarFaultTick>=60){ // 1秒
+        nstarFaulted=true;
+        nstarFaultTick=0;
+        log('⚡ 儀器故障！飛船停止...');
+      } else if(nstarFaulted && nstarFaultTick>=60){ // 1秒
+        nstarFaulted=false;
+        nstarFaultTick=0;
+      }
+    } else {
+      nstarFaulted=false;
+      nstarFaultTick=0;
+      if(nstarWarned){ nstarWarned=false; }
+    }
+  } else if(nstarFaulted){
+    nstarFaulted=false; nstarFaultTick=0;
+  }
+
+  // 彗星移動（每tick移動一次，高速）
+  if(comet && !deadOpen && tick%1===0){
+    comet.tail.unshift({x:comet.x, y:comet.y});
+    if(comet.tail.length>15) comet.tail.pop();
+    comet.x += comet.dx;
+    comet.y += comet.dy;
+    // 邊界反彈
+    if(comet.x<=0||comet.x>=99){ comet.dx=-comet.dx; comet.x=Math.max(0,Math.min(99,comet.x)); }
+    if(comet.y<=0||comet.y>=99){ comet.dy=-comet.dy; comet.y=Math.max(0,Math.min(99,comet.y)); }
+    comet.phase+=0.2;
+  }
+
+  // 超新星遺跡接觸偵測
+  if(supernovaRemnant && !snovaShield && !deadOpen){
+    const touched = supernovaRemnant.some(r=>{
+      const rx=Math.round(r.x), ry=Math.round(r.y);
+      return Math.abs(rx-player.x)<=1 && Math.abs(ry-player.y)<=1;
+    });
+    if(touched){
+      snovaShield=true;
+      snovaShieldTick=60; // 60秒（regenTick每秒-1）
+      snovaOpen=true;
+      document.getElementById('snova-ov').style.display='block';
+      document.getElementById('snova-popup').style.display='block';
+      log('✦ 獲得超新星光芒護盾！無敵60秒！');
+    }
+  }
+
+  draw();
+  requestAnimationFrame(gameLoop);
+}
+
+function init(){
+  canvas=document.getElementById('gc');
+  ctx=canvas.getContext('2d');
+  // 初始化背景快取 canvas
+  bgCanvas=new OffscreenCanvas(CS,CS);
+  bgCtx=bgCanvas.getContext('2d');
+  recalcStats();
+  setupUI();
+  const seed=randomSeed();
+  generateMap(seed,50,50);
+  log('飛船啟動，進入空域 '+seed+'...');
+  updateHUD();
+  setInterval(regenTick,1000);
+  requestAnimationFrame(gameLoop);
+}
+
+init();
+</script>
+</body>
+</html>

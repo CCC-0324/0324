@@ -536,7 +536,7 @@ function updateDog() {
 
   if (target) {
     // check if adjacent (close enough to bite)
-    if (dist(dog.tx, dog.ty, target.tx, target.ty) <= 1.5) {
+    if (dist(dog.tx, dog.ty, target.tx, target.ty) <= 1.1) {
       // BITE!
       dog.biting = true;
       dog.biteTimer = 40;

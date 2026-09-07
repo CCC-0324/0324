@@ -1,0 +1,1155 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>荒野求生 — Web 飢荒原型 v0.1</title>
+<style>
+  html,body{margin:0;padding:0;height:100%;background:#0b0906;overflow:hidden;
+    font-family:"Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif;}
+  #game{display:block;width:100vw;height:100vh;cursor:crosshair;touch-action:none;}
+  #hint{position:fixed;left:50%;bottom:12px;transform:translateX(-50%);
+    color:#8a7f6a;font-size:12px;letter-spacing:.05em;pointer-events:none;
+    text-shadow:0 1px 2px #000;user-select:none;}
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<div id="hint">WASD 移動　左鍵 互動／攻擊　1–8 使用道具　Tab 製作欄　Q 丟棄</div>
+<script>
+"use strict";
+
+/* ============================================================
+   荒野求生 — Web 飢荒原型 v0.1
+   架構分區：
+     [1] 常數與設定      [2] 工具函式
+     [3] 資料表（物品/配方/物件）
+     [4] 世界生成        [5] 空間網格
+     [6] 玩家與背包      [7] 更新迴圈
+     [8] 繪製（地面/物件/黑暗/UI）
+   ============================================================ */
+
+/* ---------- [1] 常數與設定 ---------- */
+const CFG = {
+  tile: 64,
+  worldTiles: 90,            // 世界 90x90 tiles
+  camLerp: 0.12,
+  reach: 58,                 // 互動距離
+  dayLen: 32, duskLen: 16, nightLen: 16,   // 秒
+  hungerRate: 1.05,          // 每秒飢餓下降
+  starveDmg: 1.6,            // 飢餓歸零後每秒扣血
+  sanDay: 0.4, sanDusk: -0.6, sanNightLit: -0.35, sanDark: -2.6,
+  darkGrace: 6,              // 全黑幾秒後被夜怪襲擊
+  darkDmg: 22,
+  invSlots: 8,
+};
+CFG.worldSize = CFG.tile * CFG.worldTiles;
+CFG.fullDay = CFG.dayLen + CFG.duskLen + CFG.nightLen;
+
+const COL = {
+  ink:'#16110c', inkSoft:'#241b13',
+  grass1:'#4b6b3a', grass2:'#3f5c31', grass3:'#567a41',
+  dirt1:'#5c4a32', dirt2:'#4d3d29',
+  rocky1:'#5a5a52', rocky2:'#4a4a43',
+  marsh1:'#3d4a37', marsh2:'#32402f',
+  bone:'#e6dcc3', parch:'#c9b995',
+  fire:'#f0a03c', fireHot:'#ffd98a',
+  blood:'#8f2f22',
+};
+
+/* ---------- [2] 工具函式 ---------- */
+const clamp=(v,a,b)=>v<a?a:v>b?b:v;
+const lerp=(a,b,t)=>a+(b-a)*t;
+const dist2=(ax,ay,bx,by)=>{const dx=ax-bx,dy=ay-by;return dx*dx+dy*dy;};
+const dist=(ax,ay,bx,by)=>Math.sqrt(dist2(ax,ay,bx,by));
+
+function mulberry32(seed){
+  let a=seed>>>0;
+  return function(){
+    a|=0; a=a+0x6D2B79F5|0;
+    let t=Math.imul(a^a>>>15,1|a);
+    t=t+Math.imul(t^t>>>7,61|t)^t;
+    return ((t^t>>>14)>>>0)/4294967296;
+  };
+}
+// 種子化 value noise（供地形分區用）
+function makeNoise(seed){
+  const rnd=mulberry32(seed), G=128, g=new Float32Array(G*G);
+  for(let i=0;i<g.length;i++) g[i]=rnd();
+  const at=(x,y)=>g[((y%G)+G)%G*G+(((x%G)+G)%G)];
+  const sm=t=>t*t*(3-2*t);
+  return function(x,y){
+    const xi=Math.floor(x), yi=Math.floor(y), xf=sm(x-xi), yf=sm(y-yi);
+    return lerp(lerp(at(xi,yi),at(xi+1,yi),xf),
+                lerp(at(xi,yi+1),at(xi+1,yi+1),xf),yf);
+  };
+}
+
+/* ---------- [3] 資料表 ---------- */
+const ITEMS = {
+  log:      {name:'木材', stack:20},
+  twig:     {name:'樹枝', stack:20},
+  grass:    {name:'乾草', stack:20},
+  rock:     {name:'石頭', stack:20},
+  flint:    {name:'燧石', stack:20},
+
+  berries:  {name:'漿果', stack:20, cook:'berriesC', food:{h:9,hp:1,s:0}},
+  berriesC: {name:'熟漿果', stack:20, food:{h:13,hp:3,s:0}},
+  carrot:   {name:'胡蘿蔔', stack:20, cook:'carrotC', food:{h:13,hp:1,s:0}},
+  carrotC:  {name:'烤胡蘿蔔', stack:20, food:{h:19,hp:3,s:1}},
+  meat:     {name:'蜘蛛肉', stack:20, cook:'meatC', food:{h:13,hp:3,s:-10}},
+  meatC:    {name:'熟蜘蛛肉', stack:20, food:{h:19,hp:8,s:-4}},
+
+  axe:      {name:'斧頭', stack:1, tool:'chop', dur:100, dmg:27},
+  pickaxe:  {name:'鎬子', stack:1, tool:'mine', dur:100, dmg:27},
+  spear:    {name:'長矛', stack:1, dur:150, dmg:34},
+  torch:    {name:'火把', stack:1, dur:100, dmg:17, light:150, fuelBurn:1},
+  campkit:  {name:'營火', stack:10, place:'campfire'},
+};
+
+const RECIPES = [
+  {out:'axe',     n:1, cost:{twig:1, flint:1}},
+  {out:'pickaxe', n:1, cost:{twig:2, flint:2}},
+  {out:'spear',   n:1, cost:{twig:2, flint:1, grass:1}},
+  {out:'torch',   n:1, cost:{twig:2, grass:2}},
+  {out:'campkit', n:1, cost:{log:2, grass:3}},
+];
+
+// 場景物件定義：hits=需敲擊次數，tool=需要工具，regrow=再生秒數(0為不再生)
+const PROPS = {
+  tree:      {r:16, hits:3, tool:'chop', drop:{log:2},              regrow:0,  shade:1},
+  boulder:   {r:20, hits:4, tool:'mine', drop:{rock:2, flint:1},    regrow:0},
+  sapling:   {r:10, hits:1, tool:null,   drop:{twig:1},             regrow:45},
+  tuft:      {r:10, hits:1, tool:null,   drop:{grass:1},            regrow:45},
+  bush:      {r:13, hits:1, tool:null,   drop:{berries:2},          regrow:70},
+  flintrock: {r:9,  hits:1, tool:null,   drop:{flint:1},            regrow:0},
+  carrotp:   {r:8,  hits:1, tool:null,   drop:{carrot:1},           regrow:0},
+};
+
+/* ---------- 全域狀態 ---------- */
+const cv=document.getElementById('game'), ctx=cv.getContext('2d');
+let W=0,H=0,DPR=1;
+let dark, darkCtx;                 // 黑暗遮罩離屏畫布（避免 ctx.filter，iOS 相容）
+let G=null;                        // game state
+
+function resize(){
+  DPR=Math.min(window.devicePixelRatio||1, 2);
+  W=window.innerWidth; H=window.innerHeight;
+  cv.width=W*DPR; cv.height=H*DPR;
+  cv.style.width=W+'px'; cv.style.height=H+'px';
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  dark=document.createElement('canvas');
+  dark.width=W; dark.height=H;
+  darkCtx=dark.getContext('2d');
+}
+window.addEventListener('resize',resize);
+
+/* ---------- [4] 世界生成 ---------- */
+function newGame(seed){
+  const rnd=mulberry32(seed);
+  const nBiome=makeNoise(seed*7+11), nDetail=makeNoise(seed*13+29);
+
+  const g={
+    seed, rnd, nBiome, nDetail,
+    t:0, day:1, phase:'day', phaseT:0,
+    props:[], mobs:[], fires:[], fx:[],
+    cam:{x:0,y:0},
+    over:false, msg:[], craftOpen:false, placing:null,
+    hoverProp:null, darkT:0, shakeT:0,
+  };
+
+  // 地形分區
+  g.biomeAt=(tx,ty)=>{
+    const v=nBiome(tx*0.055, ty*0.055);
+    const d=nDetail(tx*0.13, ty*0.13);
+    if(v<0.34) return 'rocky';
+    if(v<0.42 && d<0.45) return 'marsh';
+    if(v>0.68) return 'forest';
+    return 'plain';
+  };
+
+  // 散佈物件
+  const S=CFG.worldSize;
+  for(let ty=1; ty<CFG.worldTiles-1; ty++){
+    for(let tx=1; tx<CFG.worldTiles-1; tx++){
+      const b=g.biomeAt(tx,ty);
+      const x=(tx+rnd())*CFG.tile, y=(ty+rnd())*CFG.tile;
+      const r=rnd();
+      let type=null;
+      if(b==='forest'){
+        if(r<0.42) type='tree';
+        else if(r<0.50) type='sapling';
+        else if(r<0.55) type='tuft';
+        else if(r<0.58) type='bush';
+      }else if(b==='plain'){
+        if(r<0.07) type='tree';
+        else if(r<0.16) type='tuft';
+        else if(r<0.22) type='sapling';
+        else if(r<0.27) type='bush';
+        else if(r<0.30) type='carrotp';
+        else if(r<0.32) type='flintrock';
+      }else if(b==='rocky'){
+        if(r<0.18) type='boulder';
+        else if(r<0.26) type='flintrock';
+        else if(r<0.30) type='tuft';
+      }else if(b==='marsh'){
+        if(r<0.10) type='tuft';
+        else if(r<0.14) type='sapling';
+        else if(r<0.17) type='bush';
+      }
+      if(type) g.props.push(makeProp(type,x,y,rnd));
+    }
+  }
+
+  // 出生點：找一塊平原並清空周邊
+  let sx=S/2, sy=S/2;
+  for(let i=0;i<400;i++){
+    const tx=8+Math.floor(rnd()*(CFG.worldTiles-16)),
+          ty=8+Math.floor(rnd()*(CFG.worldTiles-16));
+    if(g.biomeAt(tx,ty)==='plain'){ sx=tx*CFG.tile; sy=ty*CFG.tile; break; }
+  }
+  g.props=g.props.filter(p=>dist2(p.x,p.y,sx,sy)>90*90);
+
+  g.player={
+    x:sx, y:sy, vx:0, vy:0, r:12, speed:170,
+    hp:150, hpMax:150, hunger:150, hungerMax:150, san:200, sanMax:200,
+    face:1, walk:0, atkCd:0, hurtT:0,
+    hand:null,                       // {id, dur}
+    inv:new Array(CFG.invSlots).fill(null),  // {id, n, dur}
+  };
+  g.cam.x=sx; g.cam.y=sy;
+  addItem(g,'flint',1); addItem(g,'twig',2);
+  g._gridP=buildGrid(g.props);   // 靜態物件：只建一次，查詢端自行跳過 dead
+  return g;
+}
+
+function makeProp(type,x,y,rnd){
+  const d=PROPS[type];
+  return {type,x,y, hp:d.hits, ready:true, regrowT:0,
+          sway:rnd()*Math.PI*2, sc:0.88+rnd()*0.28, shakeT:0, dead:false};
+}
+
+/* ---------- [5] 空間網格（查詢加速） ---------- */
+const GRID=128;
+function buildGrid(list){
+  const map=new Map();
+  for(const e of list){
+    if(e.dead) continue;
+    const k=(Math.floor(e.x/GRID))+','+(Math.floor(e.y/GRID));
+    let a=map.get(k); if(!a){a=[];map.set(k,a);} a.push(e);
+  }
+  return map;
+}
+function queryGrid(map,x,y,r){
+  const out=[], c0=Math.floor((x-r)/GRID), c1=Math.floor((x+r)/GRID),
+        r0=Math.floor((y-r)/GRID), r1=Math.floor((y+r)/GRID);
+  for(let cy=r0;cy<=r1;cy++) for(let cx=c0;cx<=c1;cx++){
+    const a=map.get(cx+','+cy); if(a) for(const e of a) out.push(e);
+  }
+  return out;
+}
+
+/* ---------- [6] 背包 ---------- */
+function addItem(g,id,n){
+  const def=ITEMS[id], inv=g.player.inv;
+  if(def.stack>1){
+    for(let i=0;i<inv.length;i++){
+      const s=inv[i];
+      if(s&&s.id===id&&s.n<def.stack){
+        const take=Math.min(n, def.stack-s.n); s.n+=take; n-=take;
+        if(n<=0) return true;
+      }
+    }
+  }
+  while(n>0){
+    const i=inv.indexOf(null);
+    if(i<0){ toast(g,'背包滿了'); return false; }
+    const take=Math.min(n,def.stack);
+    inv[i]={id, n:take, dur:def.dur||0};
+    n-=take;
+  }
+  return true;
+}
+function countItem(g,id){
+  let c=0;
+  for(const s of g.player.inv) if(s&&s.id===id) c+=s.n;
+  const h=g.player.hand; if(h&&h.id===id) c+=1;
+  return c;
+}
+function removeItem(g,id,n){
+  const inv=g.player.inv;
+  for(let i=inv.length-1;i>=0&&n>0;i--){
+    const s=inv[i]; if(!s||s.id!==id) continue;
+    const take=Math.min(s.n,n); s.n-=take; n-=take;
+    if(s.n<=0) inv[i]=null;
+  }
+  return n<=0;
+}
+function toast(g,text){
+  g.msg.push({text, t:2.4});
+  if(g.msg.length>4) g.msg.shift();
+}
+
+/* ---------- 使用 / 裝備 / 吃 ---------- */
+function useSlot(g,i){
+  const p=g.player, s=p.inv[i]; if(!s) return;
+  const def=ITEMS[s.id];
+  if(def.food){
+    // 站在燃燒中的營火旁 → 烤熟；否則直接吃
+    if(def.cook){
+      for(const f of g.fires){
+        if(f.fuel>0 && dist(p.x,p.y,f.x,f.y)<78){
+          s.n--; if(s.n<=0) p.inv[i]=null;
+          addItem(g,def.cook,1); toast(g,'烤好了 '+ITEMS[def.cook].name);
+          return;
+        }
+      }
+    }
+    p.hunger=clamp(p.hunger+def.food.h,0,p.hungerMax);
+    p.hp=clamp(p.hp+def.food.hp,0,p.hpMax);
+    p.san=clamp(p.san+def.food.s,0,p.sanMax);
+    s.n--; if(s.n<=0) p.inv[i]=null;
+    toast(g,'吃了 '+def.name);
+    return;
+  }
+  if(def.place){ g.placing={id:s.id, slot:i}; toast(g,'選擇放置位置'); return; }
+  if(def.dmg||def.tool||def.light){          // 裝備到手上
+    const old=p.hand;
+    p.hand={id:s.id, dur:s.dur};
+    s.n--; if(s.n<=0) p.inv[i]=null;
+    if(old) addItem2(g,old);
+    return;
+  }
+}
+function addItem2(g,handItem){                // 放回有耐久的單件物品
+  const inv=g.player.inv, i=inv.indexOf(null);
+  if(i<0){ toast(g,'背包滿了'); return; }
+  inv[i]={id:handItem.id, n:1, dur:handItem.dur};
+}
+function dropHandOrSlot(g){
+  const p=g.player;
+  if(p.hand){ p.hand=null; toast(g,'丟棄手持物'); return; }
+}
+
+/* ---------- 製作 ---------- */
+function canCraft(g,rec){
+  for(const k in rec.cost) if(countItem(g,k)<rec.cost[k]) return false;
+  return true;
+}
+function doCraft(g,rec){
+  if(!canCraft(g,rec)){ toast(g,'材料不足'); return; }
+  for(const k in rec.cost) removeItem(g,k,rec.cost[k]);
+  addItem(g,rec.out,rec.n);
+  toast(g,'製作了 '+ITEMS[rec.out].name);
+}
+
+/* ---------- [7] 更新 ---------- */
+const keys={};
+window.addEventListener('keydown',e=>{
+  keys[e.code]=true;
+  if(e.code==='Tab'){ e.preventDefault(); if(G) G.craftOpen=!G.craftOpen; }
+  if(e.code==='KeyQ'&&G) dropHandOrSlot(G);
+  if(e.code==='Escape'&&G) G.placing=null;
+  if(/^Digit[1-8]$/.test(e.code)&&G&&!G.over) useSlot(G, +e.code.slice(5)-1);
+  if(e.code==='Space'&&G&&G.over){ G=newGame((Math.random()*1e9)|0); }
+});
+window.addEventListener('keyup',e=>{keys[e.code]=false;});
+
+const mouse={x:0,y:0,wx:0,wy:0,down:false,clicked:false};
+cv.addEventListener('mousemove',e=>{
+  const r=cv.getBoundingClientRect();
+  mouse.x=e.clientX-r.left; mouse.y=e.clientY-r.top;
+});
+cv.addEventListener('mousedown',e=>{ if(e.button===0){mouse.down=true;mouse.clicked=true;} });
+window.addEventListener('mouseup',()=>{mouse.down=false;});
+cv.addEventListener('contextmenu',e=>e.preventDefault());
+
+function updateTime(g,dt){
+  g.t+=dt; g.phaseT+=dt;
+  const lim={day:CFG.dayLen,dusk:CFG.duskLen,night:CFG.nightLen}[g.phase];
+  if(g.phaseT>=lim){
+    g.phaseT-=lim;
+    g.phase = g.phase==='day' ? 'dusk' : g.phase==='dusk' ? 'night' : (g.day++, 'day');
+  }
+}
+// 0 = 全亮, 1 = 全黑
+function darknessLevel(g){
+  if(g.phase==='day') return 0;
+  if(g.phase==='dusk') return 0.72*(g.phaseT/CFG.duskLen);
+  const k=g.phaseT/CFG.nightLen;
+  return k<0.15 ? lerp(0.72,0.97,k/0.15) : k>0.85 ? lerp(0.97,0.6,(k-0.85)/0.15) : 0.97;
+}
+
+function lightSources(g){
+  const L=[];
+  for(const f of g.fires) if(f.fuel>0)
+    L.push({x:f.x, y:f.y-6, r:f.radius*(0.85+0.15*Math.sin(g.t*9+f.x))});
+  const h=g.player.hand;
+  if(h&&ITEMS[h.id].light) L.push({x:g.player.x, y:g.player.y-10,
+    r:ITEMS[h.id].light*(0.9+0.1*Math.sin(g.t*11))});
+  return L;
+}
+function inLight(g,x,y,L){
+  for(const l of L) if(dist2(x,y,l.x,l.y)<l.r*l.r*0.82) return true;
+  return false;
+}
+
+function update(g,dt){
+  if(g.over) return;
+  const p=g.player;
+  updateTime(g,dt);
+
+  /* --- 移動 --- */
+  let ax=0, ay=0;
+  if(keys.KeyW||keys.ArrowUp)   ay-=1;
+  if(keys.KeyS||keys.ArrowDown) ay+=1;
+  if(keys.KeyA||keys.ArrowLeft) ax-=1;
+  if(keys.KeyD||keys.ArrowRight)ax+=1;
+  const m=Math.hypot(ax,ay);
+  if(m>0){
+    ax/=m; ay/=m;
+    if(ax!==0) p.face=ax>0?1:-1;
+    p.walk+=dt*10;
+  }else p.walk*=0.85;
+  const sp=p.speed*(p.hunger<=0?0.65:1);
+  let nx=p.x+ax*sp*dt, ny=p.y+ay*sp*dt;
+
+  // 與物件碰撞（只對大型物件）
+  const gridP=g._gridP;
+  for(const e of queryGrid(gridP,nx,ny,40)){
+    if(!e.ready||e.dead) continue;
+    const rr=PROPS[e.type].r;
+    if(rr<14) continue;
+    const d=dist(nx,ny,e.x,e.y), need=rr+p.r*0.6;
+    if(d<need && d>0.001){ nx=e.x+(nx-e.x)/d*need; ny=e.y+(ny-e.y)/d*need; }
+  }
+  p.x=clamp(nx, CFG.tile, CFG.worldSize-CFG.tile);
+  p.y=clamp(ny, CFG.tile, CFG.worldSize-CFG.tile);
+
+  /* --- 相機 --- */
+  g.cam.x=lerp(g.cam.x,p.x,CFG.camLerp);
+  g.cam.y=lerp(g.cam.y,p.y,CFG.camLerp);
+
+  /* --- 三圍 --- */
+  p.hunger=clamp(p.hunger-CFG.hungerRate*dt,0,p.hungerMax);
+  if(p.hunger<=0) p.hp-=CFG.starveDmg*dt;
+
+  const L=lightSources(g);
+  const lit=inLight(g,p.x,p.y,L);
+  const dl=darknessLevel(g);
+  let sanRate;
+  if(g.phase==='day') sanRate=CFG.sanDay;
+  else if(g.phase==='dusk') sanRate=CFG.sanDusk;
+  else sanRate = lit ? CFG.sanNightLit : CFG.sanDark;
+  p.san=clamp(p.san+sanRate*dt,0,p.sanMax);
+
+  /* --- 黑暗中的夜怪 --- */
+  if(dl>0.85 && !lit){
+    g.darkT+=dt;
+    if(g.darkT>CFG.darkGrace){
+      g.darkT=0; p.hp-=CFG.darkDmg; p.hurtT=0.4; g.shakeT=0.35;
+      toast(g,'黑暗中有東西抓了你');
+    }
+  }else g.darkT=Math.max(0,g.darkT-dt*2);
+
+  if(p.hp<=0){ p.hp=0; g.over=true; }
+  p.hurtT=Math.max(0,p.hurtT-dt);
+  p.atkCd=Math.max(0,p.atkCd-dt);
+  g.shakeT=Math.max(0,g.shakeT-dt);
+
+  /* --- 手持火把燃燒 --- */
+  if(p.hand&&ITEMS[p.hand.id].fuelBurn){
+    p.hand.dur-=ITEMS[p.hand.id].fuelBurn*dt;
+    if(p.hand.dur<=0){ p.hand=null; toast(g,'火把燒完了'); }
+  }
+
+  /* --- 物件再生 --- */
+  for(const e of g.props){
+    if(!e.ready&&PROPS[e.type].regrow>0){
+      e.regrowT-=dt;
+      if(e.regrowT<=0){ e.ready=true; e.hp=PROPS[e.type].hits; }
+    }
+    e.shakeT=Math.max(0,e.shakeT-dt);
+  }
+
+  /* --- 營火燃料 --- */
+  for(const f of g.fires){
+    if(f.fuel>0){
+      f.fuel-=dt;
+      f.radius=lerp(70, 240, clamp(f.fuel/f.max,0,1));
+    }else f.radius=0;
+  }
+
+  /* --- 蜘蛛生成與 AI --- */
+  if(g.phase==='night' && g.mobs.length<6 && Math.random()<dt*0.55){
+    const a=Math.random()*Math.PI*2, d=340+Math.random()*160;
+    const mx=clamp(p.x+Math.cos(a)*d,CFG.tile,CFG.worldSize-CFG.tile);
+    const my=clamp(p.y+Math.sin(a)*d,CFG.tile,CFG.worldSize-CFG.tile);
+    g.mobs.push({x:mx,y:my,hp:20,dmg:10,speed:96,cd:0,leg:Math.random()*9,hurtT:0,dead:false});
+  }
+  for(const s of g.mobs){
+    if(s.dead) continue;
+    const d=dist(s.x,s.y,p.x,p.y);
+    const flee = g.phase==='day' && d>80;
+    if(d<420&&!flee){
+      const k=(d>0?1:0)/Math.max(d,0.001);
+      const dirx=(p.x-s.x)*k, diry=(p.y-s.y)*k;
+      if(d>26){ s.x+=dirx*s.speed*dt; s.y+=diry*s.speed*dt; s.leg+=dt*12; }
+      else{
+        s.cd-=dt;
+        if(s.cd<=0){ s.cd=1.6; p.hp-=s.dmg; p.hurtT=0.35; g.shakeT=0.2; }
+      }
+    }
+    if(g.phase==='day'){ s.hp-=dt*4; }      // 白天蜘蛛退場（暫代回巢邏輯）
+    if(s.hp<=0) s.dead=true;
+    s.hurtT=Math.max(0,s.hurtT-dt);
+  }
+  g.mobs=g.mobs.filter(s=>!s.dead);
+
+  /* --- 特效 --- */
+  for(const f of g.fx){ f.t-=dt; f.x+=f.vx*dt; f.y+=f.vy*dt; f.vy+=260*dt; }
+  g.fx=g.fx.filter(f=>f.t>0);
+
+  /* --- 訊息 --- */
+  for(const msg of g.msg) msg.t-=dt;
+  g.msg=g.msg.filter(msg=>msg.t>0);
+
+  /* --- 滑鼠世界座標 --- */
+  mouse.wx=mouse.x-W/2+g.cam.x;
+  mouse.wy=mouse.y-H/2+g.cam.y;
+}
+
+/* ---------- 互動 ---------- */
+function pickTarget(g){
+  const p=g.player;
+  let best=null,bd=Infinity;
+  for(const s of g.mobs){
+    const d=dist(mouse.wx,mouse.wy,s.x,s.y);
+    if(d<34 && dist(p.x,p.y,s.x,s.y)<CFG.reach+14 && d<bd){ bd=d; best={kind:'mob',e:s}; }
+  }
+  if(best) return best;
+  for(const f of g.fires){
+    const d=dist(mouse.wx,mouse.wy,f.x,f.y);
+    if(d<34 && dist(p.x,p.y,f.x,f.y)<CFG.reach+10 && d<bd){ bd=d; best={kind:'fire',e:f}; }
+  }
+  if(best) return best;
+  for(const e of queryGrid(g._gridP, mouse.wx, mouse.wy, 40)){
+    if(!e.ready||e.dead) continue;
+    const rr=PROPS[e.type].r+14;
+    const d=dist(mouse.wx,mouse.wy,e.x,e.y);
+    if(d<rr && dist(p.x,p.y,e.x,e.y)<CFG.reach+PROPS[e.type].r && d<bd){
+      bd=d; best={kind:'prop',e};
+    }
+  }
+  return best;
+}
+
+function interact(g){
+  const p=g.player;
+  if(g.placing){
+    if(dist(p.x,p.y,mouse.wx,mouse.wy)<160){
+      g.fires.push({x:mouse.wx,y:mouse.wy,fuel:80,max:120,radius:240});
+      removeItem(g,g.placing.id,1);
+      g.placing=null; toast(g,'升起營火');
+    }else toast(g,'太遠了');
+    return;
+  }
+  const tgt=pickTarget(g);
+  if(!tgt) return;
+  if(p.atkCd>0) return;
+  p.atkCd=0.35;
+
+  if(tgt.kind==='mob'){
+    const dmg = p.hand&&ITEMS[p.hand.id].dmg ? ITEMS[p.hand.id].dmg : 10;
+    tgt.e.hp-=dmg; tgt.e.hurtT=0.25;
+    spend(g,1);
+    burst(g,tgt.e.x,tgt.e.y,'#5d3a52',6);
+    if(tgt.e.hp<=0){ tgt.e.dead=true; addItem(g,'meat',1); }
+    return;
+  }
+  if(tgt.kind==='fire'){
+    const f=tgt.e;                               // 點營火 = 添柴
+    if(countItem(g,'log')>0){ removeItem(g,'log',1); f.fuel=Math.min(f.max,f.fuel+35); toast(g,'加了木材'); return; }
+    if(countItem(g,'grass')>0){ removeItem(g,'grass',1); f.fuel=Math.min(f.max,f.fuel+12); toast(g,'加了乾草'); return; }
+    toast(g,'沒有燃料');
+    return;
+  }
+  // 場景物件
+  const e=tgt.e, d=PROPS[e.type];
+  if(d.tool){
+    const h=p.hand;
+    if(!h||ITEMS[h.id].tool!==d.tool){
+      toast(g, d.tool==='chop'?'需要斧頭':'需要鎬子'); return;
+    }
+    spend(g,1);
+  }
+  e.hp--; e.shakeT=0.25;
+  burst(g,e.x,e.y-14, e.type==='boulder'?'#8a8a80':'#6b4a2a', 5);
+  if(e.hp<=0){
+    for(const k in d.drop) addItem(g,k,d.drop[k]);
+    if(d.regrow>0){ e.ready=false; e.regrowT=d.regrow; }
+    else e.dead=true;
+  }
+}
+function spend(g,n){                              // 消耗手持工具耐久
+  const h=g.player.hand; if(!h||!ITEMS[h.id].dur) return;
+  h.dur-=n;
+  if(h.dur<=0){ toast(g,ITEMS[h.id].name+'壞了'); g.player.hand=null; }
+}
+function burst(g,x,y,color,n){
+  for(let i=0;i<n;i++){
+    const a=Math.random()*Math.PI*2, s=40+Math.random()*90;
+    g.fx.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s-70,t:0.4+Math.random()*0.3,color});
+  }
+}
+
+/* ---------- [8] 繪製 ---------- */
+function drawGround(g){
+  const t=CFG.tile;
+  const x0=Math.floor((g.cam.x-W/2)/t)-1, x1=Math.ceil((g.cam.x+W/2)/t)+1;
+  const y0=Math.floor((g.cam.y-H/2)/t)-1, y1=Math.ceil((g.cam.y+H/2)/t)+1;
+  for(let ty=y0;ty<=y1;ty++) for(let tx=x0;tx<=x1;tx++){
+    let c;
+    if(tx<0||ty<0||tx>=CFG.worldTiles||ty>=CFG.worldTiles){ c='#0d0b08'; }
+    else{
+      const b=g.biomeAt(tx,ty), v=g.nDetail(tx*0.7,ty*0.7);
+      if(b==='forest') c = v>0.5?COL.grass2:'#37502b';
+      else if(b==='plain') c = v>0.5?COL.grass1:COL.grass3;
+      else if(b==='rocky') c = v>0.5?COL.rocky1:COL.rocky2;
+      else c = v>0.5?COL.marsh1:COL.marsh2;
+    }
+    ctx.fillStyle=c;
+    ctx.fillRect(tx*t, ty*t, t+1, t+1);
+  }
+  // 地面碎屑，讓移動有參考感
+  ctx.fillStyle='rgba(0,0,0,0.14)';
+  for(let ty=y0;ty<=y1;ty++) for(let tx=x0;tx<=x1;tx++){
+    const v=g.nDetail(tx*3.1,ty*3.1);
+    if(v>0.72){
+      const px=tx*t+((v*97)%t), py=ty*t+((v*61)%t);
+      ctx.fillRect(px,py, 7+v*6, 3);
+    }
+  }
+}
+
+function inkPath(fill,stroke){
+  ctx.fillStyle=fill; ctx.fill();
+  ctx.strokeStyle=stroke||COL.ink; ctx.lineWidth=2.4;
+  ctx.lineJoin='round'; ctx.stroke();
+}
+function shadow(x,y,rx,ry){
+  ctx.beginPath(); ctx.ellipse(x,y,rx,ry,0,0,7); 
+  ctx.fillStyle='rgba(0,0,0,0.3)'; ctx.fill();
+}
+
+function drawProp(g,e){
+  const sway=Math.sin(g.t*1.3+e.sway)*0.02
+           + (e.shakeT>0?Math.sin(g.t*45)*0.09*e.shakeT/0.25:0);
+  ctx.save(); ctx.translate(e.x,e.y); ctx.rotate(sway); ctx.scale(e.sc,e.sc);
+
+  if(e.type==='tree'){
+    shadow(0,0,26,10);
+    ctx.beginPath(); ctx.moveTo(-7,0); ctx.lineTo(-5,-30); ctx.lineTo(5,-30); ctx.lineTo(7,0); ctx.closePath();
+    inkPath('#4a3320');
+    for(let i=0;i<3;i++){
+      const y=-26-i*24, w=30-i*7;
+      ctx.beginPath(); ctx.moveTo(-w,y); ctx.lineTo(0,y-40); ctx.lineTo(w,y); ctx.closePath();
+      inkPath(i===2?'#2f4a2c':'#284026');
+    }
+  }
+  else if(e.type==='boulder'){
+    shadow(0,2,24,9);
+    ctx.beginPath();
+    ctx.moveTo(-22,2); ctx.lineTo(-16,-20); ctx.lineTo(2,-28);
+    ctx.lineTo(19,-17); ctx.lineTo(22,2); ctx.closePath();
+    inkPath('#6d6d63');
+    ctx.beginPath(); ctx.moveTo(-8,-4); ctx.lineTo(-2,-19); ctx.lineTo(8,-8);
+    ctx.strokeStyle='rgba(0,0,0,0.35)'; ctx.lineWidth=2; ctx.stroke();
+  }
+  else if(e.type==='sapling'){
+    if(!e.ready){ stub(); ctx.restore(); return; }
+    shadow(0,0,12,5);
+    for(let i=-2;i<=2;i++){
+      ctx.beginPath(); ctx.moveTo(0,0);
+      ctx.quadraticCurveTo(i*7,-16, i*12,-26);
+      ctx.strokeStyle='#7a5a30'; ctx.lineWidth=3.2; ctx.lineCap='round'; ctx.stroke();
+    }
+  }
+  else if(e.type==='tuft'){
+    if(!e.ready){ stub(); ctx.restore(); return; }
+    shadow(0,0,12,5);
+    for(let i=-3;i<=3;i++){
+      ctx.beginPath(); ctx.moveTo(0,0);
+      ctx.quadraticCurveTo(i*5,-14, i*10,-24);
+      ctx.strokeStyle= i%2? '#7f8f3c':'#94a445'; ctx.lineWidth=3; ctx.lineCap='round'; ctx.stroke();
+    }
+  }
+  else if(e.type==='bush'){
+    shadow(0,0,16,6);
+    ctx.beginPath(); ctx.ellipse(0,-13,17,14,0,0,7);
+    inkPath(e.ready?'#37542f':'#4a4436');
+    if(e.ready){
+      ctx.fillStyle='#a8324a';
+      for(const q of [[-8,-16],[3,-20],[9,-10],[-2,-8]]){
+        ctx.beginPath(); ctx.arc(q[0],q[1],3.4,0,7); ctx.fill();
+      }
+    }
+  }
+  else if(e.type==='flintrock'){
+    shadow(0,0,10,4);
+    ctx.beginPath(); ctx.moveTo(-9,1); ctx.lineTo(-4,-10); ctx.lineTo(7,-6); ctx.lineTo(9,1); ctx.closePath();
+    inkPath('#7b6f60');
+  }
+  else if(e.type==='carrotp'){
+    shadow(0,0,9,4);
+    for(let i=-1;i<=1;i++){
+      ctx.beginPath(); ctx.moveTo(0,0); ctx.quadraticCurveTo(i*6,-10,i*9,-18);
+      ctx.strokeStyle='#5e8a3b'; ctx.lineWidth=3; ctx.lineCap='round'; ctx.stroke();
+    }
+    ctx.beginPath(); ctx.moveTo(-4,0); ctx.lineTo(4,0); ctx.lineTo(0,7); ctx.closePath();
+    inkPath('#d1762a');
+  }
+  ctx.restore();
+
+  function stub(){
+    shadow(0,0,10,4);
+    ctx.beginPath(); ctx.ellipse(0,-2,8,4,0,0,7);
+    inkPath('#4b4030');
+  }
+}
+
+function drawFire(g,f){
+  shadow(f.x,f.y,22,8);
+  ctx.save(); ctx.translate(f.x,f.y);
+  ctx.beginPath(); ctx.moveTo(-18,2); ctx.lineTo(18,-4);
+  ctx.strokeStyle='#4a3620'; ctx.lineWidth=6; ctx.lineCap='round'; ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(-16,-5); ctx.lineTo(17,3);
+  ctx.stroke();
+  if(f.fuel>0){
+    const k=clamp(f.fuel/f.max,0.15,1), fl=(0.6+0.4*Math.sin(g.t*14))*k;
+    ctx.beginPath();
+    ctx.moveTo(-11*k,-2); ctx.quadraticCurveTo(-6*k,-26*fl, 0,-34*fl);
+    ctx.quadraticCurveTo(6*k,-26*fl, 11*k,-2); ctx.closePath();
+    ctx.fillStyle=COL.fire; ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(-5*k,-3); ctx.quadraticCurveTo(-2*k,-16*fl, 0,-22*fl);
+    ctx.quadraticCurveTo(2*k,-16*fl, 5*k,-3); ctx.closePath();
+    ctx.fillStyle=COL.fireHot; ctx.fill();
+  }
+  ctx.restore();
+}
+
+function drawSpider(g,s){
+  shadow(s.x,s.y,15,6);
+  ctx.save(); ctx.translate(s.x,s.y);
+  const L=Math.sin(s.leg)*4;
+  ctx.strokeStyle=COL.ink; ctx.lineWidth=2.6; ctx.lineCap='round';
+  for(let i=0;i<4;i++){
+    const yy=-10+i*3;
+    ctx.beginPath(); ctx.moveTo(-4,yy); ctx.lineTo(-14,yy-6+(i%2?L:-L)); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(4,yy); ctx.lineTo(14,yy-6+(i%2?-L:L)); ctx.stroke();
+  }
+  ctx.beginPath(); ctx.ellipse(0,-10,11,9,0,0,7);
+  inkPath(s.hurtT>0?'#b04a5a':'#4a2f45');
+  ctx.fillStyle='#e8d24a';
+  ctx.beginPath(); ctx.arc(-4,-13,2,0,7); ctx.fill();
+  ctx.beginPath(); ctx.arc(3,-13,2,0,7); ctx.fill();
+  ctx.restore();
+}
+
+function drawPlayer(g){
+  const p=g.player, bob=Math.sin(p.walk)*2.5;
+  shadow(p.x,p.y,13,5);
+  ctx.save(); ctx.translate(p.x,p.y-bob*0.4); ctx.scale(p.face,1);
+  // 腿
+  ctx.strokeStyle=COL.ink; ctx.lineWidth=3.4; ctx.lineCap='round';
+  ctx.beginPath(); ctx.moveTo(-4,-8); ctx.lineTo(-4+Math.sin(p.walk)*5, 0); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(4,-8); ctx.lineTo(4-Math.sin(p.walk)*5, 0); ctx.stroke();
+  // 身體
+  ctx.beginPath(); ctx.moveTo(-8,-9); ctx.lineTo(-6,-27); ctx.lineTo(6,-27); ctx.lineTo(8,-9); ctx.closePath();
+  inkPath(p.hurtT>0?'#c2544a':'#3c5f7a');
+  // 頭
+  ctx.beginPath(); ctx.ellipse(0,-34,9,10,0,0,7);
+  inkPath('#e0b98c');
+  ctx.fillStyle=COL.ink;
+  ctx.beginPath(); ctx.arc(3,-36,1.7,0,7); ctx.fill();
+  ctx.beginPath(); ctx.arc(-3,-36,1.7,0,7); ctx.fill();
+  // 頭髮
+  ctx.beginPath(); ctx.moveTo(-9,-38); ctx.quadraticCurveTo(0,-50, 9,-38);
+  ctx.quadraticCurveTo(2,-43,-9,-38); ctx.closePath();
+  inkPath('#20160f');
+  // 手持物
+  if(p.hand){
+    ctx.save(); ctx.translate(9,-20); ctx.rotate(-0.5);
+    drawHandItem(g,p.hand.id);
+    ctx.restore();
+  }
+  ctx.restore();
+}
+function drawHandItem(g,id){
+  ctx.strokeStyle='#6b4a28'; ctx.lineWidth=3.2; ctx.lineCap='round';
+  ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(0,-20); ctx.stroke();
+  if(id==='axe'){
+    ctx.beginPath(); ctx.moveTo(0,-20); ctx.lineTo(9,-24); ctx.lineTo(6,-14); ctx.closePath();
+    inkPath('#9aa0a6');
+  }else if(id==='pickaxe'){
+    ctx.beginPath(); ctx.moveTo(-8,-18); ctx.lineTo(8,-24);
+    ctx.strokeStyle='#9aa0a6'; ctx.lineWidth=3.4; ctx.stroke();
+  }else if(id==='spear'){
+    ctx.beginPath(); ctx.moveTo(0,-20); ctx.lineTo(3,-30); ctx.lineTo(-3,-30); ctx.closePath();
+    inkPath('#b9b0a0');
+  }else if(id==='torch'){
+    const fl=0.7+0.3*Math.sin(g.t*16);
+    ctx.beginPath(); ctx.moveTo(-5,-19); ctx.quadraticCurveTo(0,-33*fl, 5,-19); ctx.closePath();
+    ctx.fillStyle=COL.fire; ctx.fill();
+  }
+}
+
+/* ---------- 黑暗遮罩 ---------- */
+function drawDarkness(g){
+  const dl=darknessLevel(g);
+  if(dl<=0.001) return;
+  darkCtx.clearRect(0,0,W,H);
+  darkCtx.globalCompositeOperation='source-over';
+  darkCtx.fillStyle='rgba(6,8,16,'+dl+')';
+  darkCtx.fillRect(0,0,W,H);
+  darkCtx.globalCompositeOperation='destination-out';
+  for(const l of lightSources(g)){
+    const sx=l.x-g.cam.x+W/2, sy=l.y-g.cam.y+H/2;
+    const gr=darkCtx.createRadialGradient(sx,sy,l.r*0.15,sx,sy,l.r);
+    gr.addColorStop(0,'rgba(0,0,0,1)');
+    gr.addColorStop(0.55,'rgba(0,0,0,0.85)');
+    gr.addColorStop(1,'rgba(0,0,0,0)');
+    darkCtx.fillStyle=gr;
+    darkCtx.beginPath(); darkCtx.arc(sx,sy,l.r,0,7); darkCtx.fill();
+  }
+  darkCtx.globalCompositeOperation='source-over';
+  ctx.drawImage(dark,0,0);
+
+  // 火光暖色疊加
+  ctx.save(); ctx.globalCompositeOperation='lighter';
+  for(const l of lightSources(g)){
+    const sx=l.x-g.cam.x+W/2, sy=l.y-g.cam.y+H/2;
+    const gr=ctx.createRadialGradient(sx,sy,0,sx,sy,l.r*0.8);
+    gr.addColorStop(0,'rgba(240,150,60,'+(0.20*dl)+')');
+    gr.addColorStop(1,'rgba(240,150,60,0)');
+    ctx.fillStyle=gr; ctx.beginPath(); ctx.arc(sx,sy,l.r*0.8,0,7); ctx.fill();
+  }
+  ctx.restore();
+}
+
+/* ---------- UI ---------- */
+function drawClock(g){
+  const cx=W-64, cy=64, R=34;
+  ctx.save();
+  ctx.beginPath(); ctx.arc(cx,cy,R,0,7);
+  ctx.fillStyle='rgba(20,16,12,0.72)'; ctx.fill();
+  ctx.strokeStyle=COL.parch; ctx.lineWidth=2; ctx.stroke();
+  // 三段弧
+  const segs=[['day',CFG.dayLen,'#d8c06a'],['dusk',CFG.duskLen,'#a8763f'],['night',CFG.nightLen,'#2f3550']];
+  let a=-Math.PI/2;
+  for(const [name,len,c] of segs){
+    const sweep=len/CFG.fullDay*Math.PI*2;
+    ctx.beginPath(); ctx.moveTo(cx,cy);
+    ctx.arc(cx,cy,R-6,a,a+sweep); ctx.closePath();
+    ctx.fillStyle=(g.phase===name)?c:'rgba(255,255,255,0.10)'; ctx.fill();
+    a+=sweep;
+  }
+  // 指針
+  let past=0;
+  for(const [name,len] of segs){ if(g.phase===name){ past+=g.phaseT; break;} past+=len; }
+  const ang=-Math.PI/2+past/CFG.fullDay*Math.PI*2;
+  ctx.beginPath(); ctx.moveTo(cx,cy); ctx.lineTo(cx+Math.cos(ang)*(R-4), cy+Math.sin(ang)*(R-4));
+  ctx.strokeStyle=COL.bone; ctx.lineWidth=2.4; ctx.stroke();
+  ctx.beginPath(); ctx.arc(cx,cy,4,0,7); ctx.fillStyle=COL.bone; ctx.fill();
+  // 天數
+  ctx.fillStyle=COL.bone; ctx.font='600 15px system-ui'; ctx.textAlign='center';
+  ctx.fillText('第 '+g.day+' 天', cx, cy+R+20);
+  ctx.restore();
+}
+
+function gauge(cx,cy,val,max,color,icon){
+  const R=21, k=clamp(val/max,0,1);
+  ctx.beginPath(); ctx.arc(cx,cy,R,0,7);
+  ctx.fillStyle='rgba(20,16,12,0.72)'; ctx.fill();
+  ctx.strokeStyle='rgba(0,0,0,0.6)'; ctx.lineWidth=4; ctx.stroke();
+  ctx.beginPath(); ctx.arc(cx,cy,R,-Math.PI/2,-Math.PI/2+k*Math.PI*2);
+  ctx.strokeStyle=color; ctx.lineWidth=4; ctx.stroke();
+  ctx.fillStyle=color; ctx.textAlign='center';
+  ctx.save(); ctx.translate(cx,cy);
+  if(icon==='hp'){
+    ctx.beginPath();
+    ctx.moveTo(0,6); ctx.bezierCurveTo(-11,-2,-7,-11,0,-5);
+    ctx.bezierCurveTo(7,-11,11,-2,0,6); ctx.fill();
+  }else if(icon==='hunger'){
+    ctx.beginPath(); ctx.ellipse(0,0,7,8,0.3,0,7); ctx.fill();
+    ctx.strokeStyle=color; ctx.lineWidth=2;
+    ctx.beginPath(); ctx.moveTo(2,-8); ctx.lineTo(5,-11); ctx.stroke();
+  }else{
+    ctx.beginPath(); ctx.ellipse(-3,0,6,7,0,0,7); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(4,0,5,6,0,0,7); ctx.fill();
+  }
+  ctx.restore();
+  ctx.fillStyle=COL.bone; ctx.font='600 11px system-ui';
+  ctx.fillText(Math.ceil(val), cx, cy+R+13);
+}
+
+// 物品圖示（向量繪製，統一 24x24 中心座標系）
+function drawIcon(id,x,y,s){
+  ctx.save(); ctx.translate(x,y); ctx.scale(s/24,s/24);
+  ctx.lineWidth=2; ctx.lineJoin='round'; ctx.lineCap='round';
+  const F=(c)=>{ctx.fillStyle=c;ctx.fill();ctx.strokeStyle=COL.ink;ctx.stroke();};
+  switch(id){
+    case 'log':
+      ctx.beginPath(); ctx.roundRect(-10,-6,20,12,3); F('#7a5530');
+      ctx.beginPath(); ctx.ellipse(-10,0,3.5,6,0,0,7); F('#c39a63'); break;
+    case 'twig':
+      ctx.strokeStyle='#8a6636'; ctx.lineWidth=2.6;
+      ctx.beginPath(); ctx.moveTo(-9,8); ctx.lineTo(6,-9); ctx.moveTo(0,-1); ctx.lineTo(8,2); ctx.stroke(); break;
+    case 'grass':
+      ctx.strokeStyle='#9aa845'; ctx.lineWidth=2.6;
+      for(let i=-2;i<=2;i++){ ctx.beginPath(); ctx.moveTo(0,9); ctx.quadraticCurveTo(i*4,0,i*8,-9); ctx.stroke(); } break;
+    case 'rock':
+      ctx.beginPath(); ctx.moveTo(-9,6); ctx.lineTo(-5,-6); ctx.lineTo(6,-7); ctx.lineTo(9,5); ctx.closePath(); F('#8b8b82'); break;
+    case 'flint':
+      ctx.beginPath(); ctx.moveTo(-8,5); ctx.lineTo(-2,-8); ctx.lineTo(8,0); ctx.lineTo(4,7); ctx.closePath(); F('#6d6257'); break;
+    case 'berries': case 'berriesC':
+      ctx.beginPath(); ctx.ellipse(0,3,9,7,0,0,7); F(id==='berries'?'#37542f':'#4d3f2c');
+      ctx.fillStyle=id==='berries'?'#b8384f':'#7d2a38';
+      for(const q of [[-4,0],[3,-2],[0,4]]){ctx.beginPath();ctx.arc(q[0],q[1],3.2,0,7);ctx.fill();} break;
+    case 'carrot': case 'carrotC':
+      ctx.beginPath(); ctx.moveTo(-5,-4); ctx.lineTo(5,-4); ctx.lineTo(0,9); ctx.closePath();
+      F(id==='carrot'?'#d1762a':'#a8541c');
+      ctx.strokeStyle='#5e8a3b'; ctx.lineWidth=2.2;
+      ctx.beginPath(); ctx.moveTo(-3,-5); ctx.lineTo(-6,-11); ctx.moveTo(0,-5); ctx.lineTo(0,-12);
+      ctx.moveTo(3,-5); ctx.lineTo(6,-11); ctx.stroke(); break;
+    case 'meat': case 'meatC':
+      ctx.beginPath(); ctx.ellipse(0,1,9,7,0.2,0,7); F(id==='meat'?'#a8455c':'#6f3b2c');
+      ctx.beginPath(); ctx.arc(-4,-2,2.4,0,7); ctx.fillStyle='#e8cdbb'; ctx.fill(); break;
+    case 'axe':
+      ctx.strokeStyle='#7a5530'; ctx.lineWidth=3;
+      ctx.beginPath(); ctx.moveTo(-4,10); ctx.lineTo(2,-6); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(2,-7); ctx.lineTo(11,-10); ctx.lineTo(7,0); ctx.closePath(); F('#a3a9af'); break;
+    case 'pickaxe':
+      ctx.strokeStyle='#7a5530'; ctx.lineWidth=3;
+      ctx.beginPath(); ctx.moveTo(0,11); ctx.lineTo(0,-5); ctx.stroke();
+      ctx.strokeStyle='#a3a9af'; ctx.lineWidth=3;
+      ctx.beginPath(); ctx.moveTo(-10,-2); ctx.quadraticCurveTo(0,-11,10,-2); ctx.stroke(); break;
+    case 'spear':
+      ctx.strokeStyle='#7a5530'; ctx.lineWidth=3;
+      ctx.beginPath(); ctx.moveTo(-6,11); ctx.lineTo(4,-4); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(4,-5); ctx.lineTo(9,-12); ctx.lineTo(10,-3); ctx.closePath(); F('#bdb4a4'); break;
+    case 'torch':
+      ctx.strokeStyle='#7a5530'; ctx.lineWidth=3;
+      ctx.beginPath(); ctx.moveTo(-4,11); ctx.lineTo(1,-2); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(-5,-2); ctx.quadraticCurveTo(2,-16,8,-2); ctx.closePath();
+      ctx.fillStyle=COL.fire; ctx.fill(); break;
+    case 'campkit':
+      ctx.strokeStyle='#7a5530'; ctx.lineWidth=3;
+      ctx.beginPath(); ctx.moveTo(-9,8); ctx.lineTo(9,2); ctx.moveTo(-9,2); ctx.lineTo(9,8); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(-5,0); ctx.quadraticCurveTo(0,-14,5,0); ctx.closePath();
+      ctx.fillStyle=COL.fire; ctx.fill(); break;
+  }
+  ctx.restore();
+}
+
+function slotBox(x,y,s,active){
+  ctx.beginPath(); ctx.roundRect(x,y,s,s,6);
+  ctx.fillStyle='rgba(22,17,12,0.78)'; ctx.fill();
+  ctx.strokeStyle=active?COL.bone:'rgba(201,185,149,0.45)';
+  ctx.lineWidth=active?2.2:1.6; ctx.stroke();
+}
+
+let uiHit=[];   // 每幀重建：{x,y,w,h,fn}
+function drawUI(g){
+  uiHit=[];
+  const p=g.player;
+  drawClock(g);
+  gauge(W-40, 132, p.hp, p.hpMax, '#c9483f','hp');
+  gauge(W-40, 190, p.hunger, p.hungerMax, '#d1913a','hunger');
+  gauge(W-40, 248, p.san, p.sanMax, '#c2b0d8','san');
+
+  /* 背包列 */
+  const S=52, gap=6, n=CFG.invSlots;
+  const totalW=n*S+(n-1)*gap;
+  const bx=W/2-totalW/2, by=H-S-46;
+  for(let i=0;i<n;i++){
+    const x=bx+i*(S+gap);
+    slotBox(x,by,S,false);
+    const s=p.inv[i];
+    if(s){
+      drawIcon(s.id, x+S/2, y0(by,S), 30);
+      if(s.n>1){
+        ctx.fillStyle=COL.bone; ctx.font='600 12px system-ui'; ctx.textAlign='right';
+        ctx.fillText(s.n, x+S-5, by+S-5);
+      }
+      if(ITEMS[s.id].dur) durBar(x+5,by+S-7,S-10, s.dur/ITEMS[s.id].dur);
+    }
+    ctx.fillStyle='rgba(201,185,149,0.55)'; ctx.font='500 10px system-ui'; ctx.textAlign='left';
+    ctx.fillText(i+1, x+4, by+12);
+    uiHit.push({x,y:by,w:S,h:S,fn:()=>useSlot(g,i)});
+  }
+  /* 手持格 */
+  const hx=bx-S-16;
+  slotBox(hx,by,S,true);
+  ctx.fillStyle='rgba(201,185,149,0.55)'; ctx.font='500 10px system-ui'; ctx.textAlign='center';
+  ctx.fillText('手持', hx+S/2, by-6);
+  if(p.hand){
+    drawIcon(p.hand.id, hx+S/2, y0(by,S), 30);
+    if(ITEMS[p.hand.id].dur) durBar(hx+5,by+S-7,S-10, p.hand.dur/ITEMS[p.hand.id].dur);
+  }
+  uiHit.push({x:hx,y:by,w:S,h:S,fn:()=>{ if(p.hand){addItem2(g,p.hand); p.hand=null;} }});
+
+  /* 製作欄 */
+  const cw=196, ch=RECIPES.length*46+40;
+  const cx0=16, cy0=H/2-ch/2;
+  if(g.craftOpen){
+    ctx.beginPath(); ctx.roundRect(cx0,cy0,cw,ch,10);
+    ctx.fillStyle='rgba(18,14,10,0.86)'; ctx.fill();
+    ctx.strokeStyle='rgba(201,185,149,0.4)'; ctx.lineWidth=1.6; ctx.stroke();
+    ctx.fillStyle=COL.bone; ctx.font='600 14px system-ui'; ctx.textAlign='left';
+    ctx.fillText('製作', cx0+14, cy0+26);
+    RECIPES.forEach((rec,i)=>{
+      const ry=cy0+38+i*46, ok=canCraft(g,rec);
+      ctx.globalAlpha=ok?1:0.42;
+      ctx.beginPath(); ctx.roundRect(cx0+10, ry, cw-20, 40, 6);
+      ctx.fillStyle='rgba(255,255,255,0.05)'; ctx.fill();
+      drawIcon(rec.out, cx0+34, ry+20, 28);
+      ctx.fillStyle=COL.bone; ctx.font='600 13px system-ui'; ctx.textAlign='left';
+      ctx.fillText(ITEMS[rec.out].name, cx0+56, ry+17);
+      ctx.font='400 11px system-ui'; ctx.fillStyle=COL.parch;
+      ctx.fillText(Object.keys(rec.cost).map(k=>ITEMS[k].name+'×'+rec.cost[k]).join(' '), cx0+56, ry+32);
+      ctx.globalAlpha=1;
+      uiHit.push({x:cx0+10,y:ry,w:cw-20,h:40,fn:()=>doCraft(g,rec)});
+    });
+  }else{
+    ctx.fillStyle='rgba(201,185,149,0.5)'; ctx.font='500 12px system-ui'; ctx.textAlign='left';
+    ctx.fillText('Tab 開啟製作', 18, H/2);
+  }
+
+  /* 訊息 */
+  ctx.textAlign='center'; ctx.font='500 13px system-ui';
+  g.msg.forEach((m,i)=>{
+    ctx.globalAlpha=clamp(m.t,0,1);
+    ctx.fillStyle=COL.bone;
+    ctx.fillText(m.text, W/2, by-30-i*20);
+    ctx.globalAlpha=1;
+  });
+
+  /* 放置模式提示 */
+  if(g.placing){
+    ctx.fillStyle='rgba(201,185,149,0.75)'; ctx.font='500 13px system-ui'; ctx.textAlign='center';
+    ctx.fillText('點擊地面放置營火（Esc 取消）', W/2, 40);
+  }
+
+  /* 低理智暈影 */
+  if(p.san/p.sanMax<0.4){
+    const k=(1-p.san/p.sanMax/0.4)*0.55;
+    const gr=ctx.createRadialGradient(W/2,H/2,Math.min(W,H)*0.25,W/2,H/2,Math.max(W,H)*0.62);
+    gr.addColorStop(0,'rgba(0,0,0,0)'); gr.addColorStop(1,'rgba(30,0,40,'+k+')');
+    ctx.fillStyle=gr; ctx.fillRect(0,0,W,H);
+  }
+  /* 受傷紅閃 */
+  if(p.hurtT>0){ ctx.fillStyle='rgba(160,20,20,'+(p.hurtT*0.5)+')'; ctx.fillRect(0,0,W,H); }
+
+  function y0(by,S){ return by+S/2-3; }
+  function durBar(x,y,w,k){
+    ctx.fillStyle='rgba(0,0,0,0.5)'; ctx.fillRect(x,y,w,3);
+    ctx.fillStyle= k>0.3?'#8fae55':'#c9483f'; ctx.fillRect(x,y,w*clamp(k,0,1),3);
+  }
+}
+
+function drawGameOver(g){
+  ctx.fillStyle='rgba(6,5,4,0.82)'; ctx.fillRect(0,0,W,H);
+  ctx.textAlign='center'; ctx.fillStyle=COL.bone;
+  ctx.font='700 40px Georgia, serif';
+  ctx.fillText('你沒能撐過去', W/2, H/2-24);
+  ctx.font='500 17px system-ui'; ctx.fillStyle=COL.parch;
+  ctx.fillText('存活 '+g.day+' 天', W/2, H/2+12);
+  ctx.font='500 14px system-ui'; ctx.fillStyle='rgba(201,185,149,0.6)';
+  ctx.fillText('按空白鍵重新開始', W/2, H/2+48);
+}
+
+/* ---------- 主繪製 ---------- */
+function render(g){
+  ctx.fillStyle='#0b0906'; ctx.fillRect(0,0,W,H);
+  const sh=g.shakeT>0 ? (Math.random()-0.5)*10*g.shakeT/0.35 : 0;
+  ctx.save();
+  ctx.translate(Math.round(W/2-g.cam.x+sh), Math.round(H/2-g.cam.y+sh));
+
+  drawGround(g);
+
+  // 收集可見物件，畫家演算法排序
+  const half=Math.max(W,H)/2+140;
+  const draws=[];
+  for(const e of queryGrid(g._gridP, g.cam.x, g.cam.y, half)){
+    if(e.dead) continue;
+    if(Math.abs(e.x-g.cam.x)>W/2+90||Math.abs(e.y-g.cam.y)>H/2+120) continue;
+    draws.push({y:e.y, f:()=>drawProp(g,e)});
+  }
+  for(const f of g.fires) draws.push({y:f.y, f:()=>drawFire(g,f)});
+  for(const s of g.mobs)  draws.push({y:s.y, f:()=>drawSpider(g,s)});
+  draws.push({y:g.player.y, f:()=>drawPlayer(g)});
+  draws.sort((a,b)=>a.y-b.y);
+  for(const d of draws) d.f();
+
+  // 互動高亮
+  const tgt=pickTarget(g);
+  if(tgt){
+    const e=tgt.e;
+    ctx.beginPath(); ctx.ellipse(e.x,e.y,20,8,0,0,7);
+    ctx.strokeStyle='rgba(232,220,195,0.75)'; ctx.lineWidth=2; ctx.stroke();
+  }
+  // 放置預覽
+  if(g.placing && dist(g.player.x,g.player.y,mouse.wx,mouse.wy)<160){
+    ctx.globalAlpha=0.5; drawFire(g,{x:mouse.wx,y:mouse.wy,fuel:60,max:120,radius:0}); ctx.globalAlpha=1;
+  }
+  // 特效
+  for(const f of g.fx){
+    ctx.globalAlpha=clamp(f.t*2,0,1);
+    ctx.fillStyle=f.color; ctx.fillRect(f.x-2,f.y-2,4,4);
+  }
+  ctx.globalAlpha=1;
+  ctx.restore();
+
+  drawDarkness(g);
+
+  // 全域暈影
+  const vg=ctx.createRadialGradient(W/2,H/2,Math.min(W,H)*0.35,W/2,H/2,Math.max(W,H)*0.75);
+  vg.addColorStop(0,'rgba(0,0,0,0)'); vg.addColorStop(1,'rgba(0,0,0,0.55)');
+  ctx.fillStyle=vg; ctx.fillRect(0,0,W,H);
+
+  drawUI(g);
+  if(g.over) drawGameOver(g);
+}
+
+/* ---------- 主迴圈 ---------- */
+let last=performance.now();
+function loop(now){
+  const dt=Math.min((now-last)/1000, 0.05); last=now;
+
+  // 先處理 UI 點擊，再處理世界點擊；按住左鍵可連續採集／攻擊
+  if(mouse.clicked){
+    mouse.clicked=false;
+    let hitUI=false;
+    for(const h of uiHit){
+      if(mouse.x>=h.x&&mouse.x<=h.x+h.w&&mouse.y>=h.y&&mouse.y<=h.y+h.h){
+        if(!G.over) h.fn(); hitUI=true; break;
+      }
+    }
+    mouse.worldHold=!hitUI;
+    if(!hitUI&&!G.over) interact(G);
+  }
+  if(mouse.down&&mouse.worldHold&&!G.over) interact(G);
+  if(!mouse.down) mouse.worldHold=false;
+  update(G,dt);
+  render(G);
+  requestAnimationFrame(loop);
+}
+
+resize();
+G=newGame((Math.random()*1e9)|0);
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

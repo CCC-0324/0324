@@ -1,0 +1,897 @@
+<!DOCTYPE html>
+<html lang="zh-Hant"><head><meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Particle Life v21 (Fixed Timestep + Pair Symmetry)</title>
+  <style>
+    body {
+      margin: 0;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      background-color: black;
+    }
+    canvas {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      border: none;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="particleCanvas" width="1000" height="620"></canvas>
+  <script>
+    const canvas = document.getElementById('particleCanvas');
+    const ctx = canvas.getContext('2d');
+
+    const CANVAS_WIDTH = canvas.width;
+    const CANVAS_HEIGHT = canvas.height;
+    const CANVAS_WIDTH_MINUS_EDGE = CANVAS_WIDTH - 5;
+    const CANVAS_HEIGHT_MINUS_EDGE = CANVAS_HEIGHT - 5;
+    const NEARBY_RADIUS_SQUARED = 100 * 100;
+    const MIN_DISTANCE_SQUARED = 7 * 7;
+    const MIN_DISTANCE_RIPPLE_SQUARED = 3 * 3;
+    const CLUSTER_RADIUS_SQUARED = 50 * 50;
+    const DARK_MATTER_RADIUS_SQUARED = 30 * 30;
+    const PI2 = Math.PI * 2;
+
+    // ===== 時間基準：固定步長 =====
+    // 所有物理與事件都以「步」為單位（60 步/秒），與螢幕更新率脫鉤。
+    // 毫秒計時（矩陣轉換、色盤、漣漪冷卻）一律使用 rAF 傳入的 timestamp，
+    // 每幀只取一次，不再到處呼叫 Date.now()。
+    const STEP_MS = 1000 / 60;
+    const MAX_STEPS_PER_FRAME = 3;   // 分頁切回前景時最多補跑幾步，避免螺旋式落後
+    const MAX_FRAME_DT = 100;        // 單幀最大 dt（ms），超過視為暫停後恢復
+
+    // ===== 色系系統（OKLCH 色盤旋轉）=====
+    // 12 個 slot 的感知明度 L 與彩度 C 全程固定，只有 base hue 在轉動。
+    //  L 固定 → 各 type 的明暗排序（也就是坍縮／噴射性格的視覺對應）換色前後不變。
+    //  C 固定 → 實際彩度交給 gamut 夾擠自然決定：橙色在暗 slot 的可用彩度較低，
+    //           於是暗 slot 自動落成棕色，這就是「黃/棕」的來源，不必另外指定。
+    const TYPES = 12;
+    // 以下三組數值由原綠色盤 12 色反解而得，stage 0 會逐位還原成原本的色碼
+    const SLOT_L  = [0.3606,0.4826,0.7707,0.5893,0.8502,0.5067,0.5967,0.7506,0.4955,0.6598,0.4104,0.7909];
+    const SLOT_C  = [0.0948,0.1272,0.1777,0.1146,0.1043,0.0509,0.1108,0.0565,0.0896,0.0495,0.0785,0.0669];
+    const SLOT_DH = [0.40,0.57,-5.97,-14.40,-11.23,26.23,-1.50,16.17,-1.81,-8.19,3.12,-6.85]; // 相對 base hue 的偏移
+
+    // 色系循環：綠 → 黃/棕 → 紅 →(過渡經紫)→ 藍 → 綠
+    // hue 單向遞減，全程不回頭，中途色相不會重複出現
+    const PALETTE_NAMES     = ['綠', '黃/棕', '紅', '藍'];
+    const PALETTE_BASE_HUE  = [128, 80, 25, -96];   // -96 ≡ 264（藍）
+    const HUE_STEP          = [48, 55, 121, 136];   // 各段弧長，合計 360
+
+    const BANGS_PER_SHIFT      = 10;      // 累積幾次大爆炸觸發換色
+    const PALETTE_SHIFT_DURATION = 30000; // 換色轉場長度（ms）
+
+    let paletteStage      = 0;                        // 目前所在色系
+    let paletteHue        = PALETTE_BASE_HUE[0];      // 目前 base hue（連續值，可為負）
+    let paletteShifting   = false;
+    let paletteShiftStart = 0;
+    let paletteHueFrom    = paletteHue;
+    let paletteHueTo      = paletteHue;
+    let bangsSinceShift   = 0;                        // 轉場期間不計數
+
+    // 目前這一幀的實際顏色（只在 hue 變動時重算 12 組）
+    const COLORS    = new Array(TYPES).fill('#000000');
+    const COLOR_RGB = new Array(TYPES);
+    for (let i = 0; i < TYPES; i++) COLOR_RGB[i] = { r: 0, g: 0, b: 0 };
+
+    // OKLCH → 線性 sRGB
+    function oklchToLinear(L, C, hDeg, out) {
+      const h = hDeg * Math.PI / 180;
+      const a = C * Math.cos(h);
+      const b = C * Math.sin(h);
+      const l_ = L + 0.3963377774 * a + 0.2158037573 * b;
+      const m_ = L - 0.1055613458 * a - 0.0638541728 * b;
+      const s_ = L - 0.0894841775 * a - 1.2914855480 * b;
+      const l = l_ * l_ * l_, m = m_ * m_ * m_, s = s_ * s_ * s_;
+      out[0] =  4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s;
+      out[1] = -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s;
+      out[2] = -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s;
+    }
+
+    const _lin = [0, 0, 0];
+    function inGamut(v) {
+      return v[0] >= -0.0008 && v[0] <= 1.0008 &&
+             v[1] >= -0.0008 && v[1] <= 1.0008 &&
+             v[2] >= -0.0008 && v[2] <= 1.0008;
+    }
+
+    function linToSrgb255(c) {
+      if (c < 0) c = 0; else if (c > 1) c = 1;
+      const v = c <= 0.0031308 ? 12.92 * c : 1.055 * Math.pow(c, 1 / 2.4) - 0.055;
+      return Math.round(v * 255);
+    }
+
+    const HEX2 = [];
+    for (let i = 0; i < 256; i++) HEX2.push(i.toString(16).padStart(2, '0'));
+
+    // 依目前 paletteHue 重算 12 組顏色。
+    // 超出 sRGB 色域時以二分法降低彩度（保住色相與明度），這正是暗橙轉棕的機制。
+    function rebuildColors() {
+      for (let t = 0; t < TYPES; t++) {
+        const L = SLOT_L[t], h = paletteHue + SLOT_DH[t];
+        let C = SLOT_C[t];
+        oklchToLinear(L, C, h, _lin);
+        if (!inGamut(_lin)) {
+          let lo = 0, hi = C;
+          for (let k = 0; k < 14; k++) {
+            const mid = (lo + hi) * 0.5;
+            oklchToLinear(L, mid, h, _lin);
+            if (inGamut(_lin)) lo = mid; else hi = mid;
+          }
+          C = lo;
+        }
+        oklchToLinear(L, C, h, _lin);
+        const r = linToSrgb255(_lin[0]), g = linToSrgb255(_lin[1]), b = linToSrgb255(_lin[2]);
+        const rgb = COLOR_RGB[t];
+        rgb.r = r; rgb.g = g; rgb.b = b;
+        COLORS[t] = '#' + HEX2[r] + HEX2[g] + HEX2[b];
+      }
+    }
+
+    // 由 startExplosion 呼叫；轉場期間不計數
+    function noteBangForPalette(now) {
+      if (paletteShifting) return;
+      if (++bangsSinceShift >= BANGS_PER_SHIFT) {
+        bangsSinceShift = 0;
+        paletteShifting = true;
+        paletteShiftStart = now;
+        paletteHueFrom = paletteHue;
+        paletteHueTo = paletteHue - HUE_STEP[paletteStage];
+      }
+    }
+
+    function updatePalette(now) {
+      if (!paletteShifting) return;
+      const t = Math.min((now - paletteShiftStart) / PALETTE_SHIFT_DURATION, 1);
+      paletteHue = paletteHueFrom + (paletteHueTo - paletteHueFrom) * easeInOutSine(t);
+      if (t >= 1) {
+        paletteShifting = false;
+        paletteStage = (paletteStage + 1) % 4;
+        paletteHue = paletteHueTo;
+        // hue 每繞一圈折回，避免長時間執行後數值無限往負向累積
+        if (paletteStage === 0) paletteHue += 360;
+      }
+      rebuildColors();
+    }
+
+    const PARTICLE_COUNT = 3000;
+    const MAX_FORCE = 0.2;
+    const FRICTION = 0.68;
+    const CHANGE_INTERVAL = 60000;
+    const TRANSITION_DURATION = 30000;
+    const REPULSION_STRENGTH = 0.5;
+    const COINCIDENT_JITTER = 0.3;     // 兩粒子完全重合時的隨機分離推力
+
+    // ===== 極限坍縮 / 大爆炸 事件 =====
+    const BANG_THRESHOLD = 660;        // 叢集人數達此值即觸發
+    const COLLAPSE_FRAMES = 70;        // 坍縮長度（步）
+    const EXPLODE_FRAMES = 40;         // 爆炸長度（步）
+    // 坍縮 = 正常物理 + 指向核心的拉力：force = G(t) × dist × TYPE_COLLAPSE_FACTOR[type]
+    // G 隨 t^3 由 BASE 爬升到 BASE+GAIN。末段拉力遠大於 REPULSION_STRENGTH，會壓過互斥收成一點。
+    // 上限：FRICTION=0.68 時 G×factor < ~4.9 才穩定（超過會發散）。
+    const COLLAPSE_PULL_BASE = 0.004;
+    const COLLAPSE_PULL_GAIN = 0.25;
+    const EXPLODE_SPEED = 14;          // 爆炸初速 px/step，線性遞減至 0（再乘 type 係數）
+    const EXPLODE_TAIL = 1.5;          // 爆炸尾速，也是回歸正常物理時的殘餘速度（同樣乘 type 係數）
+    const EXPLODE_JITTER = 0.15;       // 個體速度亂數 ±15%
+    const EXPLODE_ANGLE_JITTER = 0.3;  // 噴射方向擾動 ±0.3 rad
+    const BANG_TRANSITION_DURATION = 8000;  // 爆炸觸發的矩陣轉換長度（比自然轉換快）
+
+    // 各 type 的固定性格（索引對應 COLORS）
+    // 坍縮靈敏度：高 = 很快被吸入核心，低 = 拖到最後才掉進去
+    const TYPE_COLLAPSE_FACTOR = [1.0, 0.35, 0.7, 0.5, 0.9, 0.3, 0.6, 0.8, 0.45, 1.0, 0.55, 0.75];
+    // 噴射距離係數：高 = 衝到遠處，低 = 留在原地形成殘核
+    const TYPE_BLAST_FACTOR    = [0.4, 1.0, 0.6, 0.85, 0.3, 1.0, 0.5, 0.7, 0.95, 0.35, 0.8, 0.55];
+
+    // ===== SoA 粒子資料 =====
+    const N = PARTICLE_COUNT;
+    const posX = new Float32Array(N);
+    const posY = new Float32Array(N);
+    const velX = new Float32Array(N);
+    const velY = new Float32Array(N);
+    const forceX = new Float32Array(N); // 每步由 computePairForces 累加
+    const forceY = new Float32Array(N);
+    const pType = new Uint8Array(N);
+    const pClustered = new Uint8Array(N);
+    const pInRipple = new Uint8Array(N);
+    const pEvent = new Uint8Array(N);   // 0=正常 1=坍縮中（仍在 grid 內、照常交互作用）2=爆炸中（脫離物理）
+    const pullX = new Float32Array(N);  // 坍縮期每步由 updateBangEvents 寫入的中心拉力
+    const pullY = new Float32Array(N);
+
+    for (let i = 0; i < N; i++) {
+      posX[i] = Math.random() * CANVAS_WIDTH;
+      posY[i] = Math.random() * CANVAS_HEIGHT;
+      velX[i] = Math.random() * 2 - 1;
+      velY[i] = Math.random() * 2 - 1;
+      pType[i] = (Math.random() * TYPES) | 0;
+    }
+
+    // 依 type 排序的繪製順序（type 不會變，排序一次即可）
+    // typeStart[t]..typeStart[t+1] 是 drawOrder 中屬於 type t 的區段
+    const drawOrder = new Int32Array(N);
+    for (let i = 0; i < N; i++) drawOrder[i] = i;
+    drawOrder.sort((a, b) => pType[a] - pType[b]);
+    const typeStart = new Int32Array(TYPES + 1);
+    for (let i = 0; i < N; i++) typeStart[pType[i] + 1]++;
+    for (let t = 0; t < TYPES; t++) typeStart[t + 1] += typeStart[t];
+
+    // ===== 互動矩陣（攤平為一維）=====
+    function fillRandomMatrix(m) {
+      for (let i = 0; i < m.length; i++) {
+        m[i] = Math.random() * 2 * MAX_FORCE - MAX_FORCE;
+      }
+    }
+
+    const oldMatrix = new Float32Array(TYPES * TYPES);
+    const newMatrix = new Float32Array(TYPES * TYPES);
+    const INTERACTION_MATRIX = new Float32Array(TYPES * TYPES);
+    fillRandomMatrix(oldMatrix);
+    fillRandomMatrix(newMatrix);
+    INTERACTION_MATRIX.set(oldMatrix);
+
+    let lastChangeTime = 0;
+    let transitionStartTime = 0;
+    let transitionDuration = TRANSITION_DURATION;
+    let matrixTransitioning = true;   // 一開始就從 old 轉向 new
+
+    function easeInOutSine(t) {
+      return -(Math.cos(Math.PI * t) - 1) / 2;
+    }
+
+    function updateInteractionMatrix(now) {
+      if (!matrixTransitioning) {
+        // 等待期間矩陣不變，不做任何運算
+        if (now - lastChangeTime <= CHANGE_INTERVAL) return;
+        lastChangeTime = now;
+        transitionStartTime = now;
+        transitionDuration = TRANSITION_DURATION;
+        oldMatrix.set(newMatrix);
+        fillRandomMatrix(newMatrix);
+        matrixTransitioning = true;
+      }
+
+      const t = Math.min((now - transitionStartTime) / transitionDuration, 1);
+      const smoothT = easeInOutSine(t);
+      for (let i = 0; i < INTERACTION_MATRIX.length; i++) {
+        INTERACTION_MATRIX[i] = oldMatrix[i] * (1 - smoothT) + newMatrix[i] * smoothT;
+      }
+      if (t >= 1) matrixTransitioning = false;
+    }
+
+    // ===== 空間網格（counting sort，零配置）=====
+    // cellStarts[c]..cellStarts[c+1] 是 cellParticles 中屬於格子 c 的粒子索引區段，
+    // 同格粒子在記憶體中連續，走訪時快取友善
+    const GRID_SIZE = 50; // 粒子互動用 ±2 格（涵蓋 100px），叢集/暗物質用 ±1 格（涵蓋 50px）
+    const GRID_WIDTH = Math.ceil(CANVAS_WIDTH / GRID_SIZE);
+    const GRID_HEIGHT = Math.ceil(CANVAS_HEIGHT / GRID_SIZE);
+    const NUM_CELLS = GRID_WIDTH * GRID_HEIGHT;
+
+    const cellStarts = new Int32Array(NUM_CELLS + 1);
+    const cellCursor = new Int32Array(NUM_CELLS);
+    const cellParticles = new Int32Array(N);
+    const particleCell = new Int32Array(N);
+
+    function rebuildGrid() {
+      cellStarts.fill(0);
+      for (let i = 0; i < N; i++) {
+        if (pEvent[i] === 2) { particleCell[i] = -1; continue; }   // 只有爆炸中脫離 grid
+        let gx = (posX[i] / GRID_SIZE) | 0;
+        let gy = (posY[i] / GRID_SIZE) | 0;
+        if (gx >= GRID_WIDTH) gx = GRID_WIDTH - 1;
+        if (gy >= GRID_HEIGHT) gy = GRID_HEIGHT - 1;
+        const c = gy * GRID_WIDTH + gx;
+        particleCell[i] = c;
+        cellStarts[c + 1]++;
+      }
+      for (let c = 0; c < NUM_CELLS; c++) {
+        cellStarts[c + 1] += cellStarts[c];
+        cellCursor[c] = cellStarts[c];
+      }
+      for (let i = 0; i < N; i++) {
+        const c = particleCell[i];
+        if (c < 0) continue;
+        cellParticles[cellCursor[c]++] = i;
+      }
+    }
+
+    // ===== 粒子作用力（對稱配對，SoA 熱迴圈）=====
+    // 每一對粒子只算一次距離，同時把力分別累加給 i 與 j。
+    // 矩陣不對稱沒關係：i 用 M[ti][tj]，j 用 M[tj][ti]，只有 dx/dy/d2 是共用的。
+    // 走訪方式：每個格子先處理格內配對（j 在 i 之後），再處理「半鄰域」：
+    // 同列右側 2 格 + 下方兩列各 5 格，共 12 個方向，涵蓋 ±2 格而不重複。
+    const PAIR_OFF_X = new Int8Array([1, 2, -2, -1, 0, 1, 2, -2, -1, 0, 1, 2]);
+    const PAIR_OFF_Y = new Int8Array([0, 0,  1,  1, 1, 1, 1,  2,  2, 2, 2, 2]);
+    const PAIR_OFF_COUNT = 12;
+
+    // 內層迴圈：粒子 i 對「同一格 / 鄰格」的一段區間 [bStart, bEnd) 做配對。
+    // i 的力用區域變數累加（一次寫回），j 的力直接累加進 forceX/forceY。
+    // 手動展開而非拆成 applyPair(i, j) 小函式：實測後者的呼叫開銷會吃掉全部收益。
+    function pairRange(i, xi, yi, ti, ri, bStart, bEnd) {
+      const rowI = ti * TYPES;
+      const minD2i = ri ? MIN_DISTANCE_RIPPLE_SQUARED : MIN_DISTANCE_SQUARED;
+      const minDi = ri ? 3 : 7;
+      let fx = 0, fy = 0;
+
+      for (let s2 = bStart; s2 < bEnd; s2++) {
+        const j = cellParticles[s2];
+        const dx = posX[j] - xi, dy = posY[j] - yi;   // 由 i 指向 j
+        const d2 = dx * dx + dy * dy;
+        if (d2 >= NEARBY_RADIUS_SQUARED) continue;
+
+        if (d2 === 0) {
+          // 完全重合：互斥力為零、外力對兩者相同，會永遠黏住 → 給一個隨機分離推力
+          const a = Math.random() * PI2;
+          const jx = Math.cos(a) * COINCIDENT_JITTER, jy = Math.sin(a) * COINCIDENT_JITTER;
+          fx += jx; fy += jy;
+          forceX[j] -= jx; forceY[j] -= jy;
+          continue;
+        }
+
+        // 恆等式：force*(dx/dist) = (M/(0.1*dist))*(dx/dist) = 10*M*dx/d2
+        // 距離分段係數只與 d2 有關，兩側共用：dist<20 → ×-0.2，dist<50 → ×2
+        const mult = (d2 < 400 ? -2 : d2 < 2500 ? 20 : 10) / d2;
+        const tj = pType[j];
+        let dist = -1;
+
+        // ---- i 側 ----
+        if (d2 < minD2i) {
+          dist = Math.sqrt(d2);
+          const s = REPULSION_STRENGTH * (1 - dist / minDi) / dist;
+          fx -= s * dx; fy -= s * dy;
+        } else {
+          const f = INTERACTION_MATRIX[rowI + tj] * mult;
+          fx += f * dx; fy += f * dy;
+        }
+
+        // ---- j 側（方向反向：dx_j = -dx）----
+        const rj = pInRipple[j];
+        if (d2 < (rj ? MIN_DISTANCE_RIPPLE_SQUARED : MIN_DISTANCE_SQUARED)) {
+          if (dist < 0) dist = Math.sqrt(d2);
+          const s = REPULSION_STRENGTH * (1 - dist / (rj ? 3 : 7)) / dist;
+          forceX[j] += s * dx; forceY[j] += s * dy;
+        } else {
+          const f = INTERACTION_MATRIX[tj * TYPES + ti] * mult;
+          forceX[j] -= f * dx; forceY[j] -= f * dy;
+        }
+      }
+
+      forceX[i] += fx;
+      forceY[i] += fy;
+    }
+
+    function computePairForces() {
+      forceX.fill(0);
+      forceY.fill(0);
+
+      for (let cy = 0; cy < GRID_HEIGHT; cy++) {
+        for (let cx = 0; cx < GRID_WIDTH; cx++) {
+          const c = cy * GRID_WIDTH + cx;
+          const aStart = cellStarts[c], aEnd = cellStarts[c + 1];
+          if (aStart === aEnd) continue;
+
+          // 格內配對（j 只取 i 之後的）
+          for (let s = aStart; s < aEnd; s++) {
+            const i = cellParticles[s];
+            pairRange(i, posX[i], posY[i], pType[i], pInRipple[i], s + 1, aEnd);
+          }
+
+          // 半鄰域配對
+          for (let o = 0; o < PAIR_OFF_COUNT; o++) {
+            const nx = cx + PAIR_OFF_X[o], ny = cy + PAIR_OFF_Y[o];
+            if (nx < 0 || nx >= GRID_WIDTH || ny >= GRID_HEIGHT) continue;
+            const nc = ny * GRID_WIDTH + nx;
+            const bStart = cellStarts[nc], bEnd = cellStarts[nc + 1];
+            if (bStart === bEnd) continue;
+
+            for (let s = aStart; s < aEnd; s++) {
+              const i = cellParticles[s];
+              pairRange(i, posX[i], posY[i], pType[i], pInRipple[i], bStart, bEnd);
+            }
+          }
+        }
+      }
+    }
+
+    // ===== 粒子積分（速度、位置、邊界）=====
+    function integrateParticles() {
+      for (let i = 0; i < N; i++) {
+        const evState = pEvent[i];
+        if (evState === 2) continue;
+
+        let fx = forceX[i], fy = forceY[i];
+        if (evState === 1) { fx += pullX[i]; fy += pullY[i]; }
+
+        let vx = (velX[i] + fx) * FRICTION;
+        let vy = (velY[i] + fy) * FRICTION;
+        let x = posX[i] + vx;
+        let y = posY[i] + vy;
+
+        if (x < 0) {
+          x = 0;
+          vx = Math.abs(vx) < 0.5 ? 0.5 : Math.abs(vx);
+        } else if (x > CANVAS_WIDTH) {
+          x = CANVAS_WIDTH;
+          vx = Math.abs(vx) < 0.5 ? -0.5 : -Math.abs(vx);
+        }
+
+        if (y < 0) {
+          y = 0;
+          vy = Math.abs(vy) < 0.5 ? 0.5 : Math.abs(vy);
+        } else if (y > CANVAS_HEIGHT) {
+          y = CANVAS_HEIGHT;
+          vy = Math.abs(vy) < 0.5 ? -0.5 : -Math.abs(vy);
+        }
+
+        if (x < 5) vx += 5;
+        else if (x > CANVAS_WIDTH_MINUS_EDGE) vx -= 5;
+        if (y < 5) vy += 5;
+        else if (y > CANVAS_HEIGHT_MINUS_EDGE) vy -= 5;
+
+        posX[i] = x;
+        posY[i] = y;
+        velX[i] = vx;
+        velY[i] = vy;
+      }
+    }
+
+    // ===== 暗物質粒子（數量極少，保留 class，直接讀寫 SoA 陣列）=====
+    class DarkMatterParticle {
+      constructor(x, y, now) {
+        this.x = x;
+        this.y = y;
+        this.vx = (Math.random() - 0.5) * 20;
+        this.vy = (Math.random() - 0.5) * 20;
+        this.color = "#000000";
+        this.radius = 2;
+        this.lifetime = 5000;
+        this.activeTime = 2000;
+        this.creationTime = now;
+      }
+
+      update(now) {
+        this.vx += (Math.random() - 0.5) * 10;
+        this.vy += (Math.random() - 0.5) * 10;
+        this.vx = Math.max(-10, Math.min(10, this.vx));
+        this.vy = Math.max(-10, Math.min(10, this.vy));
+        this.x += this.vx;
+        this.y += this.vy;
+
+        if (this.x < 0) this.x = 0, this.vx *= -1;
+        if (this.x > CANVAS_WIDTH) this.x = CANVAS_WIDTH, this.vx *= -1;
+        if (this.y < 0) this.y = 0, this.vy *= -1;
+        if (this.y > CANVAS_HEIGHT) this.y = CANVAS_HEIGHT, this.vy *= -1;
+
+        const age = now - this.creationTime;
+        if (age < this.activeTime) return;
+
+        const timeFactor = Math.exp((age - this.activeTime) / 1000) - 1;
+        const repulsion = 1 + timeFactor * 10;
+
+        const gx = (this.x / GRID_SIZE) | 0;
+        const gy = (this.y / GRID_SIZE) | 0;
+        let xMin = gx - 1; if (xMin < 0) xMin = 0;
+        let xMax = gx + 1; if (xMax > GRID_WIDTH - 1) xMax = GRID_WIDTH - 1;
+        let yMin = gy - 1; if (yMin < 0) yMin = 0;
+        let yMax = gy + 1; if (yMax > GRID_HEIGHT - 1) yMax = GRID_HEIGHT - 1;
+
+        for (let cy = yMin; cy <= yMax; cy++) {
+          const rowOffset = cy * GRID_WIDTH;
+          for (let cx = xMin; cx <= xMax; cx++) {
+            const c = rowOffset + cx;
+            const end = cellStarts[c + 1];
+            for (let s = cellStarts[c]; s < end; s++) {
+              const j = cellParticles[s];
+              const dx = posX[j] - this.x;
+              const dy = posY[j] - this.y;
+              const d2 = dx * dx + dy * dy;
+
+              if (d2 < DARK_MATTER_RADIUS_SQUARED && d2 > 0.01) {
+                const s2 = repulsion / Math.sqrt(d2);
+                velX[j] += s2 * dx;
+                velY[j] += s2 * dy;
+              }
+            }
+          }
+        }
+      }
+
+      isExpired(now) {
+        return now - this.creationTime > this.lifetime;
+      }
+
+      draw() {
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, this.radius, 0, PI2);
+        ctx.fillStyle = this.color;
+        ctx.fill();
+      }
+    }
+
+    const darkMatterParticles = [];
+
+    function updateDarkMatter(now) {
+      for (let i = darkMatterParticles.length - 1; i >= 0; i--) {
+        const dmp = darkMatterParticles[i];
+        dmp.update(now);
+        if (dmp.isExpired(now)) darkMatterParticles.splice(i, 1);
+      }
+    }
+
+    // ===== 叢集偵測（可重用緩衝，無 Set / 無配置）=====
+    const clusterProcessed = new Uint8Array(N);
+    const clusterMembers = new Int32Array(N);
+
+    function updateClusters() {
+      pClustered.fill(0);
+      clusterProcessed.fill(0);
+      const clusters = [];
+
+      for (let i = 0; i < N; i++) {
+        if (clusterProcessed[i] || pEvent[i]) continue;
+
+        const xi = posX[i], yi = posY[i];
+        let memberCount = 0;
+        clusterMembers[memberCount++] = i;
+        clusterProcessed[i] = 1;
+
+        // 叢集半徑 50 = GRID_SIZE，±1 格保證完整覆蓋
+        const gx = (xi / GRID_SIZE) | 0;
+        const gy = (yi / GRID_SIZE) | 0;
+        let xMin = gx - 1; if (xMin < 0) xMin = 0;
+        let xMax = gx + 1; if (xMax > GRID_WIDTH - 1) xMax = GRID_WIDTH - 1;
+        let yMin = gy - 1; if (yMin < 0) yMin = 0;
+        let yMax = gy + 1; if (yMax > GRID_HEIGHT - 1) yMax = GRID_HEIGHT - 1;
+
+        for (let cy = yMin; cy <= yMax; cy++) {
+          const rowOffset = cy * GRID_WIDTH;
+          for (let cx = xMin; cx <= xMax; cx++) {
+            const c = rowOffset + cx;
+            const end = cellStarts[c + 1];
+            for (let s = cellStarts[c]; s < end; s++) {
+              const j = cellParticles[s];
+              // 事件中的粒子（坍縮中）不可被其他叢集撈走，否則會產生成員重疊的重複事件
+              if (clusterProcessed[j] || pEvent[j]) continue;
+
+              const dx = posX[j] - xi;
+              const dy = posY[j] - yi;
+
+              if (dx * dx + dy * dy < CLUSTER_RADIUS_SQUARED) {
+                clusterMembers[memberCount++] = j;
+                clusterProcessed[j] = 1;
+              }
+            }
+          }
+        }
+
+        if (memberCount >= BANG_THRESHOLD) {
+          // 超過臨界質量：凍結成員名單，交給事件系統，不再當作一般叢集
+          triggerCollapse(clusterMembers.slice(0, memberCount));
+          continue;
+        }
+
+        if (memberCount >= 300) {
+          let centerX = 0, centerY = 0;
+          for (let m = 0; m < memberCount; m++) {
+            const idx = clusterMembers[m];
+            pClustered[idx] = 1;
+            centerX += posX[idx];
+            centerY += posY[idx];
+          }
+          clusters.push({ x: centerX / memberCount, y: centerY / memberCount });
+        }
+      }
+
+      return clusters;
+    }
+
+    // ===== 極限坍縮 → 大爆炸 事件系統 =====
+    // 觸發當下就把成員名單快照凍結，整個事件都用同一份名單。
+    // 不重新偵測：坍縮到一半時幾何已完全改變，重新偵測會得到不同答案。
+    const bangEvents = [];
+
+    function triggerCollapse(members) {
+      const L = members.length;
+      // 保險：任一成員已在事件中就不再開新事件，杜絕重疊事件造成的多段噴發
+      for (let m = 0; m < L; m++) if (pEvent[members[m]]) return;
+      for (let m = 0; m < L; m++) pEvent[members[m]] = 1;
+      bangEvents.push({
+        members,
+        phase: 1,
+        frame: 0,
+        dirX: new Float32Array(L),
+        dirY: new Float32Array(L),
+        spd: new Float32Array(L)     // 個體噴射係數 = type 係數 × 亂數
+      });
+    }
+
+    function startExplosion(ev, cx, cy, now) {
+      const mem = ev.members, L = mem.length;
+      for (let k = 0; k < L; k++) {
+        const i = mem[k];
+        const dx = posX[i] - cx, dy = posY[i] - cy;
+        const d2 = dx * dx + dy * dy;
+        // 方向取爆炸當下相對核心的位置，再加角度擾動；核心已被壓到極小，太近的改用亂數
+        const a = (d2 > 0.25 ? Math.atan2(dy, dx) : Math.random() * PI2)
+                + (Math.random() * 2 - 1) * EXPLODE_ANGLE_JITTER;
+        ev.dirX[k] = Math.cos(a);
+        ev.dirY[k] = Math.sin(a);
+        ev.spd[k] = TYPE_BLAST_FACTOR[pType[i]] * (1 + (Math.random() * 2 - 1) * EXPLODE_JITTER);
+        pEvent[i] = 2;
+      }
+      ev.phase = 2;
+      ev.frame = 0;
+
+      // 宇宙重生：爆炸同時改寫作用力矩陣（比自然轉換快）
+      oldMatrix.set(INTERACTION_MATRIX);
+      fillRandomMatrix(newMatrix);
+      transitionStartTime = now;
+      transitionDuration = BANG_TRANSITION_DURATION;
+      lastChangeTime = now;
+      matrixTransitioning = true;
+
+      noteBangForPalette(now);
+    }
+
+    function updateBangEvents(now) {
+      for (let e = bangEvents.length - 1; e >= 0; e--) {
+        const ev = bangEvents[e];
+        const mem = ev.members, L = mem.length;
+
+        // 核心每步重算：大團本身在移動，不能塌向它早已離開的位置
+        let cx = 0, cy = 0;
+        for (let k = 0; k < L; k++) { cx += posX[mem[k]]; cy += posY[mem[k]]; }
+        cx /= L; cy /= L;
+
+        if (ev.phase === 1) {
+          // 只寫拉力，位置與速度交給 integrateParticles 的正常物理處理
+          const t = ev.frame / COLLAPSE_FRAMES;
+          const G = COLLAPSE_PULL_BASE + COLLAPSE_PULL_GAIN * t * t * t;
+          for (let k = 0; k < L; k++) {
+            const i = mem[k];
+            const g = G * TYPE_COLLAPSE_FACTOR[pType[i]];
+            pullX[i] = (cx - posX[i]) * g;
+            pullY[i] = (cy - posY[i]) * g;
+          }
+          if (++ev.frame >= COLLAPSE_FRAMES) startExplosion(ev, cx, cy, now);
+          continue;
+        }
+
+        const t = ev.frame / EXPLODE_FRAMES;
+        const baseSpeed = EXPLODE_SPEED * (1 - t) + EXPLODE_TAIL;
+        for (let k = 0; k < L; k++) {
+          const i = mem[k];
+          const speed = baseSpeed * ev.spd[k];
+          let x = posX[i] + ev.dirX[k] * speed;
+          let y = posY[i] + ev.dirY[k] * speed;
+          if (x < 0) { x = 0; ev.dirX[k] = -ev.dirX[k]; }
+          else if (x > CANVAS_WIDTH) { x = CANVAS_WIDTH; ev.dirX[k] = -ev.dirX[k]; }
+          if (y < 0) { y = 0; ev.dirY[k] = -ev.dirY[k]; }
+          else if (y > CANVAS_HEIGHT) { y = CANVAS_HEIGHT; ev.dirY[k] = -ev.dirY[k]; }
+          posX[i] = x;
+          posY[i] = y;
+        }
+
+        if (++ev.frame >= EXPLODE_FRAMES) {
+          for (let k = 0; k < L; k++) {
+            const i = mem[k];
+            const tail = EXPLODE_TAIL * ev.spd[k];
+            velX[i] = ev.dirX[k] * tail;
+            velY[i] = ev.dirY[k] * tail;
+            pEvent[i] = 0;
+          }
+          bangEvents.splice(e, 1);
+        }
+      }
+    }
+
+    // ===== 漣漪 =====
+    class Ripple {
+      constructor(x, y) {
+        this.x = x;
+        this.y = y;
+        this.radius = 0;
+        this.maxRadius = 300;
+        this.speed = 2;
+        this.opacity = 0.8;
+      }
+
+      // 回傳 false 表示已擴散完畢，應移除
+      update() {
+        this.radius += this.speed;
+        this.opacity = 0.8 * (1 - this.radius / this.maxRadius);
+        return this.opacity > 0;
+      }
+
+      draw() {
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, this.radius, 0, PI2);
+        ctx.strokeStyle = `rgba(20, 20, 20, ${this.opacity})`;
+        ctx.lineWidth = 3;
+        ctx.stroke();
+      }
+    }
+
+    const ripples = [];
+
+    // 漣漪來源追蹤：以「空間位置」而非「偵測序號」辨識同一個叢集。
+    // 每次偵測後，把新叢集配對到 50px 內最近的既有來源（沿用其冷卻時間），
+    // 配不到的視為新叢集；久未出現的來源自動清除。
+    const rippleSources = [];                   // { x, y, lastRipple, lastSeen }
+    const RIPPLE_MATCH_RADIUS_SQUARED = 50 * 50;
+    const RIPPLE_SOURCE_EXPIRE = 10000;
+    const RIPPLE_COOLDOWN = 5000;
+    const CLUSTER_CHECK_INTERVAL = 500;          // 漣漪本來就是 5 秒一次，每 500ms 偵測一次綽綽有餘
+    let lastClusterCheckTime = -Infinity;
+
+    function updateRipples(now) {
+      if (now - lastClusterCheckTime >= CLUSTER_CHECK_INTERVAL) {
+        lastClusterCheckTime = now;
+        const clusters = updateClusters();
+
+        for (const c of clusters) {
+          let best = null, bestD2 = RIPPLE_MATCH_RADIUS_SQUARED;
+          for (const src of rippleSources) {
+            if (src.lastSeen === now) continue;   // 這一輪已被別的叢集認領
+            const dx = src.x - c.x, dy = src.y - c.y;
+            const d2 = dx * dx + dy * dy;
+            if (d2 < bestD2) { bestD2 = d2; best = src; }
+          }
+          if (best) {
+            best.x = c.x; best.y = c.y; best.lastSeen = now;
+          } else {
+            rippleSources.push({ x: c.x, y: c.y, lastRipple: -Infinity, lastSeen: now });
+          }
+        }
+
+        for (let i = rippleSources.length - 1; i >= 0; i--) {
+          if (now - rippleSources[i].lastSeen > RIPPLE_SOURCE_EXPIRE) rippleSources.splice(i, 1);
+        }
+      }
+
+      for (const src of rippleSources) {
+        if (src.lastSeen !== lastClusterCheckTime) continue;   // 目前不在場的叢集不發漣漪
+        if (now - src.lastRipple >= RIPPLE_COOLDOWN) {
+          src.lastRipple = now;
+          ripples.push(new Ripple(src.x, src.y));
+          if (Math.random() < 0.05) {
+            darkMatterParticles.push(new DarkMatterParticle(src.x, src.y, now));
+          }
+        }
+      }
+
+      for (let i = ripples.length - 1; i >= 0; i--) {
+        if (!ripples[i].update()) ripples.splice(i, 1);
+      }
+    }
+
+    function drawRipples() {
+      for (const ripple of ripples) ripple.draw();
+    }
+
+    // 只掃描漣漪外接矩形涵蓋的格子，而非全部粒子
+    function markRippleParticles() {
+      pInRipple.fill(0);
+      for (const ripple of ripples) {
+        const r = ripple.radius, r2 = r * r;
+        const rx = ripple.x, ry = ripple.y;
+
+        let xMin = ((rx - r) / GRID_SIZE) | 0; if (xMin < 0) xMin = 0;
+        let xMax = ((rx + r) / GRID_SIZE) | 0; if (xMax > GRID_WIDTH - 1) xMax = GRID_WIDTH - 1;
+        let yMin = ((ry - r) / GRID_SIZE) | 0; if (yMin < 0) yMin = 0;
+        let yMax = ((ry + r) / GRID_SIZE) | 0; if (yMax > GRID_HEIGHT - 1) yMax = GRID_HEIGHT - 1;
+
+        for (let cy = yMin; cy <= yMax; cy++) {
+          const rowOffset = cy * GRID_WIDTH;
+          for (let cx = xMin; cx <= xMax; cx++) {
+            const c = rowOffset + cx;
+            const end = cellStarts[c + 1];
+            for (let s = cellStarts[c]; s < end; s++) {
+              const i = cellParticles[s];
+              const dx = posX[i] - rx;
+              const dy = posY[i] - ry;
+              if (dx * dx + dy * dy <= r2) pInRipple[i] = 1;
+            }
+          }
+        }
+      }
+    }
+
+    // ===== 批次繪製：每個 type 一條 path、一次 fill =====
+    function drawParticles(now) {
+      // 閃爍 alpha 是全域同步的，每幀計算一次即可
+      const blink = 0.5 + 0.5 * Math.sin(PI2 * now / 1000);
+      const alpha = 0.3 + 0.2 * blink;
+
+      // 第一遍：clustered 光暈（先畫，讓粒子本體疊在上面）
+      for (let t = 0; t < TYPES; t++) {
+        const start = typeStart[t], end = typeStart[t + 1];
+        let any = false;
+        ctx.beginPath();
+        for (let k = start; k < end; k++) {
+          const i = drawOrder[k];
+          if (!pClustered[i]) continue;
+          ctx.rect(posX[i] - 1.5, posY[i] - 1.5, 3, 3);
+          any = true;
+        }
+        if (any) {
+          const rgb = COLOR_RGB[t];
+          ctx.fillStyle = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${alpha})`;
+          ctx.fill();
+        }
+      }
+
+      // 第二遍：粒子本體（radius=1 的圓改用 2x2 方塊，肉眼幾乎無差）
+      for (let t = 0; t < TYPES; t++) {
+        const start = typeStart[t], end = typeStart[t + 1];
+        ctx.beginPath();
+        for (let k = start; k < end; k++) {
+          const i = drawOrder[k];
+          ctx.rect(posX[i] - 1, posY[i] - 1, 2, 2);
+        }
+        ctx.fillStyle = COLORS[t];
+        ctx.fill();
+      }
+    }
+
+    // ===== 主迴圈：固定步長物理 + 每幀繪製 =====
+    function step(now) {
+      updateInteractionMatrix(now);
+      updatePalette(now);
+      updateBangEvents(now);
+      rebuildGrid();
+      markRippleParticles();
+      computePairForces();
+      integrateParticles();
+      updateDarkMatter(now);    // 讀取的是本步 rebuildGrid 的網格，位置誤差 ≤ 1 步
+      updateRipples(now);
+    }
+
+    function render(now) {
+      ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+      drawRipples();
+      drawParticles(now);
+      for (const dmp of darkMatterParticles) dmp.draw();
+    }
+
+    let lastFrameTime = -1;
+    let accumulator = 0;
+
+    function animate(now) {
+      if (lastFrameTime < 0) lastFrameTime = now;
+      let dt = now - lastFrameTime;
+      lastFrameTime = now;
+      if (dt > MAX_FRAME_DT) dt = MAX_FRAME_DT;
+      accumulator += dt;
+
+      let steps = 0;
+      while (accumulator >= STEP_MS && steps < MAX_STEPS_PER_FRAME) {
+        step(now);
+        accumulator -= STEP_MS;
+        steps++;
+      }
+      if (accumulator >= STEP_MS) accumulator = 0;   // 追不上就放棄，不累積債務
+
+      render(now);
+      requestAnimationFrame(animate);
+    }
+
+    // 初始化：毫秒計時器與 rAF 使用同一個時鐘（performance.now）
+    lastChangeTime = performance.now();
+    transitionStartTime = lastChangeTime;
+    rebuildColors();
+    requestAnimationFrame(animate);
+
+    // 全螢幕：以瀏覽器實際狀態判斷，不自行維護旗標（使用者按 Esc 退出也不會失同步）
+    canvas.addEventListener('click', () => {
+      if (document.fullscreenElement) {
+        document.exitFullscreen();
+      } else if (document.documentElement.requestFullscreen) {
+        document.documentElement.requestFullscreen();
+      }
+    });
+  </script>
+</body></html>

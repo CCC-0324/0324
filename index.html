@@ -186,7 +186,7 @@
     const EXPLODE_FRAMES = 40;
     const COLLAPSE_PULL_BASE = 0.004;
     const COLLAPSE_PULL_GAIN = 0.25;
-    const EXPLODE_SPEED = 14;
+    const EXPLODE_SPEED = 7;
     const EXPLODE_TAIL = 1.5;
     const EXPLODE_JITTER = 0.15;
     const EXPLODE_ANGLE_JITTER = 0.3;
@@ -200,7 +200,7 @@
     // 以「這一步的移動線段」做掃掠檢測，高速時也不會穿透。噴散粒子彼此不碰撞（否則一出生就互相抵消）。
     const BLAST_COLLIDE_RADIUS = 8;
     const BLAST_COLLIDE_RADIUS_SQUARED = BLAST_COLLIDE_RADIUS * BLAST_COLLIDE_RADIUS;
-    const BLAST_PUSH = 1.0;
+    const BLAST_PUSH = 0.5;
     const BLAST_DEFLECT = 0.6;
     const BLAST_DAMP = 0.05;
 
